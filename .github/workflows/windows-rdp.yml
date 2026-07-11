@@ -1,104 +1,78 @@
-name: RDP via Cloudflare Tunnel (Free)
+name: Chrome Remote Desktop - Full Desktop in Browser
 
 on:
   workflow_dispatch:
+    inputs:
+      instance_name:
+        description: 'اسم الجهاز (اختياري)'
+        required: false
+        default: 'GitHub-Runner'
+        type: string
 
 jobs:
-  rdp:
+  crd:
     runs-on: windows-latest
     timeout-minutes: 360
 
     steps:
-      - name: Setup Cloudflared
-        uses: AnimMouse/setup-cloudflared@v2
-
-      - name: Enable RDP and Allow Multiple Sessions
+      - name: Install Google Chrome
         run: |
-          Write-Host "Enabling Remote Desktop..." -ForegroundColor Green
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-          # السماح بجلسات متعددة
-          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name 'fSingleSessionPerUser' -Value 0
-          Restart-Service -Name TermService -Force
-          Write-Host "✅ RDP Enabled Successfully!"
+          Write-Host "📥 Installing Google Chrome..." -ForegroundColor Green
+          choco install googlechrome -y
+          Write-Host "✅ Chrome installed!" -ForegroundColor Green
 
-      - name: Set Password
+      - name: Install Chrome Remote Desktop
         run: |
-          Write-Host "Setting up user account..." -ForegroundColor Green
-          $Password = ConvertTo-SecureString "P@ssw0rd123!" -AsPlainText -Force
-          Set-LocalUser -Name "runneradmin" -Password $Password
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "runneradmin"
-          Write-Host "Username: runneradmin" -ForegroundColor Yellow
-          Write-Host "Password: P@ssw0rd123!" -ForegroundColor Yellow
+          Write-Host "📥 Installing Chrome Remote Desktop..." -ForegroundColor Green
+          $crdUrl = "https://dl.google.com/remote/desktop/chromeremotedesktop.msi"
+          Invoke-WebRequest -Uri $crdUrl -OutFile "crd.msi"
+          Start-Process -FilePath "msiexec" -ArgumentList "/i crd.msi /quiet /norestart" -NoNewWindow -Wait
+          Write-Host "✅ Chrome Remote Desktop installed!" -ForegroundColor Green
 
-      - name: Start Cloudflare Tunnel
-        id: tunnel
+      - name: Start Chrome Remote Desktop Host
         run: |
-          Write-Host "Starting Cloudflare Tunnel..." -ForegroundColor Green
-          $logFile = "C:\cloudflared.log"
-          # تشغيل cloudflared في الخلفية مع تسجيل المخرجات
-          Start-Process -FilePath "cloudflared" -ArgumentList "tunnel --url tcp://localhost:3389 --logfile $logFile" -NoNewWindow -RedirectStandardOutput "C:\cloudflared_output.log"
+          Write-Host "🚀 Starting Chrome Remote Desktop..." -ForegroundColor Green
           
-          Write-Host "⏳ Waiting for tunnel to establish..." -ForegroundColor Yellow
-          $retries = 30
-          $url = $null
-          for ($i = 1; $i -le $retries; $i++) {
-            Start-Sleep -Seconds 2
-            if (Test-Path $logFile) {
-              $content = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
-              if ($content -match 'https://([a-zA-Z0-9-]+)\.trycloudflare\.com') {
-                $url = "https://$($Matches[1]).trycloudflare.com"
-                break
-              }
-              # محاولة من المخرجات القياسية
-              $output = Get-Content "C:\cloudflared_output.log" -Raw -ErrorAction SilentlyContinue
-              if ($output -match 'https://([a-zA-Z0-9-]+)\.trycloudflare\.com') {
-                $url = "https://$($Matches[1]).trycloudflare.com"
-                break
-              }
-            }
-            Write-Host "   Attempt $i / $retries ..." -ForegroundColor Gray
-          }
+          # الكود الذي نسخته من Google
+          $code = "4/0AXEQxIA6psv6Ny71wLo3hPa1ZoVF9-8Cm6Yfo7NKuNfMoBo_WLyj2cJoOaaHrsLWDfyA1w"
+          $name = "${{ github.event.inputs.instance_name }}" -replace " ", "-"
+          if (-not $name) { $name = $Env:COMPUTERNAME }
+          
+          # تشغيل الأمر لتسجيل الجهاز
+          & "${Env:PROGRAMFILES(X86)}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe" --code="$code" --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="$name"
+          
+          Write-Host "✅ Chrome Remote Desktop is ready!" -ForegroundColor Green
 
-          if ($url) {
-            echo "tunnel_url=$url" >> $env:GITHUB_OUTPUT
-            Write-Host "✅ TUNNEL URL FOUND:" -ForegroundColor Green
-            Write-Host "👉 $url" -ForegroundColor Cyan
-          } else {
-            Write-Host "❌ Could not extract URL automatically." -ForegroundColor Red
-            echo "tunnel_url=NOT_FOUND" >> $env:GITHUB_OUTPUT
-            Write-Host "Last 20 lines of cloudflared log:" -ForegroundColor Yellow
-            Get-Content $logFile -Tail 20
-          }
-
-      - name: Display Connection Details
+      - name: Display Connection Instructions
         run: |
-          $url = "${{ steps.tunnel.outputs.tunnel_url }}"
-          Write-Host "`n==============================================" -ForegroundColor Cyan
-          Write-Host "🖥️  RDP TUNNEL ACTIVE" -ForegroundColor Green
-          Write-Host "==============================================" -ForegroundColor Cyan
-          if ($url -ne "NOT_FOUND") {
-            Write-Host "👉 USE THIS URL:" -ForegroundColor Yellow
-            Write-Host "   $url" -ForegroundColor White
-            Write-Host ""
-            Write-Host "🔧 CONNECT WITH THIS COMMAND (run locally):" -ForegroundColor Yellow
-            Write-Host "   cloudflared access tcp --hostname $url --url localhost:3389" -ForegroundColor White
-            Write-Host ""
-            Write-Host "📋 Then open Remote Desktop Connection (mstsc) and connect to:" -ForegroundColor Yellow
-            Write-Host "   localhost:3389" -ForegroundColor White
-          } else {
-            Write-Host "⚠️  URL not found automatically. Check logs above." -ForegroundColor Red
-          }
-          Write-Host "----------------------------------------------" -ForegroundColor Cyan
-          Write-Host "👤 Username: runneradmin" -ForegroundColor Yellow
-          Write-Host "🔑 Password: P@ssw0rd123!" -ForegroundColor Yellow
-          Write-Host "==============================================" -ForegroundColor Cyan
+          Write-Host "`n" -ForegroundColor White
+          Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+          Write-Host "🖥️  CHROME REMOTE DESKTOP - سطح مكتب كامل في المتصفح" -ForegroundColor Green
+          Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "📌 خطوات الاتصال:" -ForegroundColor Yellow
+          Write-Host "  1️⃣ افتح هذا الرابط في متصفحك:" -ForegroundColor White
+          Write-Host "     👉 https://remotedesktop.google.com/access" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "  2️⃣ ستظهر قائمة بأجهزتك. ابحث عن هذا الجهاز:" -ForegroundColor White
+          Write-Host "     📱 الاسم: ${{ github.event.inputs.instance_name }}" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "  3️⃣ انقر على الجهاز وانتظر ثوانٍ" -ForegroundColor White
+          Write-Host "  4️⃣ ستظهر شاشة Windows Server كاملة في المتصفح!" -ForegroundColor Green
+          Write-Host ""
+          Write-Host "⚠️  مهم:" -ForegroundColor Red
+          Write-Host "  - لا تغلق هذه النافذة (تبقي الجلسة نشطة)" -ForegroundColor Yellow
+          Write-Host "  - يمكنك فتح عدة أجهزة بتشغيل Workflows متعددة" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
 
       - name: Keep Session Alive
         run: |
-          Write-Host "⏳ Session Active - Keeping alive..." -ForegroundColor Green
+          Write-Host "⏳ الجلسة نشطة - الحفاظ على الاتصال..." -ForegroundColor Green
+          Write-Host "🔗 يمكنك الاتصال الآن من: https://remotedesktop.google.com/access" -ForegroundColor Yellow
+          $counter = 0
           while ($true) {
+            $counter++
+            Write-Host "✓ Heartbeat #$counter - $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Gray
             Start-Sleep -Seconds 60
-            Write-Host "✓ Active - $(Get-Date -Format 'HH:mm:ss')"
           }
