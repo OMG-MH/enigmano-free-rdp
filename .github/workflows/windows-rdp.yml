@@ -1,4 +1,4 @@
-name: EnigMano Instance Deployment (Fixed)
+name: EnigMano RDP - ngrok (Final)
 
 on:
   workflow_dispatch:
@@ -34,8 +34,9 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+          Write-Host "✅ RDP Enabled Successfully!"
 
-      - name: Create User Account
+      - name: Set Administrator Password
         run: |
           Write-Host "Setting up user account..." -ForegroundColor Green
           $Password = ConvertTo-SecureString "P@ssw0rd!" -AsPlainText -Force
@@ -44,7 +45,7 @@ jobs:
           Write-Host "Username: runneradmin" -ForegroundColor Yellow
           Write-Host "Password: P@ssw0rd!" -ForegroundColor Yellow
 
-      - name: Download and Setup ngrok
+      - name: Download ngrok
         run: |
           Write-Host "Downloading ngrok..." -ForegroundColor Green
           Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
@@ -55,27 +56,16 @@ jobs:
           Write-Host "Configuring ngrok..." -ForegroundColor Green
           C:\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_SHAHZAIB }}
 
-      - name: Install Essential Software (Optional)
-        run: |
-          Write-Host "Installing essential software..." -ForegroundColor Green
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-          choco install googlechrome -y
-          choco install 7zip -y
-          choco install notepadplusplus -y
-          Write-Host "Software installation completed!" -ForegroundColor Green
-
-      - name: Start ngrok Tunnel (Improved)
+      - name: Start ngrok Tunnel
         id: start_ngrok
         run: |
-          Write-Host "Starting ngrok tunnel with logging..." -ForegroundColor Green
-          # تشغيل ngrok مع تسجيل المخرجات إلى ملف
+          Write-Host "Starting ngrok tunnel..." -ForegroundColor Green
+          # تشغيل ngrok مع تسجيل المخرجات
           $ngrokLog = "C:\ngrok.log"
           Start-Process -FilePath "C:\ngrok\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -NoNewWindow -RedirectStandardOutput $ngrokLog
           Write-Host "ngrok process started. Waiting for it to be ready..." -ForegroundColor Yellow
-          
-          # الانتظار حتى يصبح المنفذ 4040 مفتوحاً (واجهة برمجة التطبيقات)
+
+          # الانتظار حتى يصبح منفذ API (4040) مفتوحاً
           $maxRetries = 30
           $retryCount = 0
           $apiReady = $false
@@ -86,17 +76,17 @@ jobs:
               $test = Test-NetConnection -ComputerName 127.0.0.1 -Port 4040 -InformationLevel Quiet
               if ($test) {
                 $apiReady = $true
-                Write-Host "✅ ngrok API is ready on port 4040 (after $retryCount attempts)." -ForegroundColor Green
+                Write-Host "✅ ngrok API ready (attempt $retryCount / $maxRetries)" -ForegroundColor Green
                 break
               }
             } catch {
               # تجاهل الأخطاء
             }
-            Write-Host "   Attempt $retryCount/$maxRetries: Waiting for ngrok API..." -ForegroundColor Gray
+            Write-Host "   Attempt $retryCount / $maxRetries : Waiting..." -ForegroundColor Gray
           }
-          
+
           if (-not $apiReady) {
-            Write-Host "❌ ngrok API did not become ready. Displaying log:" -ForegroundColor Red
+            Write-Host "❌ ngrok API not ready. Displaying log:" -ForegroundColor Red
             Get-Content $ngrokLog -Tail 20
             exit 1
           }
@@ -104,7 +94,7 @@ jobs:
       - name: Get Connection Details
         run: |
           Write-Host "`n=== CONNECTION DETAILS ===" -ForegroundColor Green
-          $maxRetries = 5
+          $maxRetries = 10
           $retryCount = 0
           $tunnelInfo = $null
           while ($retryCount -lt $maxRetries -and -not $tunnelInfo) {
@@ -117,10 +107,10 @@ jobs:
                 break
               }
             } catch {
-              Write-Host "   Attempt $retryCount/$maxRetries: Could not get tunnel info..." -ForegroundColor Gray
+              Write-Host "   Attempt $retryCount / $maxRetries : Getting tunnel info..." -ForegroundColor Gray
             }
           }
-          
+
           if ($tunnelInfo) {
             $publicUrl = $tunnelInfo.public_url
             $host = $publicUrl -replace "tcp://", ""
@@ -152,7 +142,7 @@ jobs:
           while ($true) {
             $counter++
             Write-Host "Session active - Heartbeat #$counter ($(Get-Date))" -ForegroundColor Green
-            # تحقق من ngrok كل 5 دقائق وأعد التشغيل إذا لزم الأمر
+            # كل 5 دقائق، نتحقق من حالة ngrok ونعيد التشغيل إذا لزم الأمر
             if ($counter % 5 -eq 0) {
               try {
                 $ngrokStatus = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 5 -ErrorAction Stop
@@ -162,11 +152,9 @@ jobs:
                   Write-Host "ngrok tunnel status: NO TUNNELS" -ForegroundColor Yellow
                 }
               } catch {
-                Write-Host "ngrok tunnel status: ERROR - Attempting restart..." -ForegroundColor Red
-                # قتل أي عملية ngrok قديمة
+                Write-Host "ngrok tunnel status: ERROR - Restarting..." -ForegroundColor Red
                 taskkill /F /IM ngrok.exe 2>$null
                 Start-Sleep -Seconds 3
-                # إعادة تشغيل ngrok
                 Start-Process -FilePath "C:\ngrok\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -NoNewWindow -RedirectStandardOutput "C:\ngrok.log"
               }
             }
