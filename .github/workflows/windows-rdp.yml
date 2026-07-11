@@ -1,162 +1,104 @@
-name: EnigMano RDP - ngrok (Final)
+name: RDP via Cloudflare Tunnel (Free)
 
 on:
   workflow_dispatch:
-    inputs:
-      instance_number:
-        description: 'رقم النسخة (1-10)'
-        required: true
-        default: '1'
-        type: string
 
 jobs:
-  deploy-rdp:
+  rdp:
     runs-on: windows-latest
     timeout-minutes: 360
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Setup Cloudflared
+        uses: AnimMouse/setup-cloudflared@v2
 
-      - name: System Information
-        run: |
-          Write-Host "=== ENIGMANO RDP DEPLOYMENT ===" -ForegroundColor Green
-          Write-Host "Instance Number: ${{ github.event.inputs.instance_number }}" -ForegroundColor Yellow
-          Write-Host "Runner: $env:RUNNER_NAME" -ForegroundColor Yellow
-          Write-Host "Workflow: $env:GITHUB_WORKFLOW" -ForegroundColor Yellow
-          Write-Host "`n=== SYSTEM SPECIFICATIONS ===" -ForegroundColor Cyan
-          Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, TotalPhysicalMemory
-          Get-WmiObject -Class Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors
-
-      - name: Enable RDP
+      - name: Enable RDP and Allow Multiple Sessions
         run: |
           Write-Host "Enabling Remote Desktop..." -ForegroundColor Green
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+          # السماح بجلسات متعددة
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name 'fSingleSessionPerUser' -Value 0
+          Restart-Service -Name TermService -Force
           Write-Host "✅ RDP Enabled Successfully!"
 
-      - name: Set Administrator Password
+      - name: Set Password
         run: |
           Write-Host "Setting up user account..." -ForegroundColor Green
-          $Password = ConvertTo-SecureString "P@ssw0rd!" -AsPlainText -Force
+          $Password = ConvertTo-SecureString "P@ssw0rd123!" -AsPlainText -Force
           Set-LocalUser -Name "runneradmin" -Password $Password
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "runneradmin"
           Write-Host "Username: runneradmin" -ForegroundColor Yellow
-          Write-Host "Password: P@ssw0rd!" -ForegroundColor Yellow
+          Write-Host "Password: P@ssw0rd123!" -ForegroundColor Yellow
 
-      - name: Download ngrok
+      - name: Start Cloudflare Tunnel
+        id: tunnel
         run: |
-          Write-Host "Downloading ngrok..." -ForegroundColor Green
-          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
-          Expand-Archive ngrok.zip -DestinationPath C:\ngrok
-
-      - name: Configure ngrok
-        run: |
-          Write-Host "Configuring ngrok..." -ForegroundColor Green
-          C:\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_SHAHZAIB }}
-
-      - name: Start ngrok Tunnel
-        id: start_ngrok
-        run: |
-          Write-Host "Starting ngrok tunnel..." -ForegroundColor Green
-          # تشغيل ngrok مع تسجيل المخرجات
-          $ngrokLog = "C:\ngrok.log"
-          Start-Process -FilePath "C:\ngrok\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -NoNewWindow -RedirectStandardOutput $ngrokLog
-          Write-Host "ngrok process started. Waiting for it to be ready..." -ForegroundColor Yellow
-
-          # الانتظار حتى يصبح منفذ API (4040) مفتوحاً
-          $maxRetries = 30
-          $retryCount = 0
-          $apiReady = $false
-          while ($retryCount -lt $maxRetries -and -not $apiReady) {
+          Write-Host "Starting Cloudflare Tunnel..." -ForegroundColor Green
+          $logFile = "C:\cloudflared.log"
+          # تشغيل cloudflared في الخلفية مع تسجيل المخرجات
+          Start-Process -FilePath "cloudflared" -ArgumentList "tunnel --url tcp://localhost:3389 --logfile $logFile" -NoNewWindow -RedirectStandardOutput "C:\cloudflared_output.log"
+          
+          Write-Host "⏳ Waiting for tunnel to establish..." -ForegroundColor Yellow
+          $retries = 30
+          $url = $null
+          for ($i = 1; $i -le $retries; $i++) {
             Start-Sleep -Seconds 2
-            $retryCount++
-            try {
-              $test = Test-NetConnection -ComputerName 127.0.0.1 -Port 4040 -InformationLevel Quiet
-              if ($test) {
-                $apiReady = $true
-                Write-Host "✅ ngrok API ready (attempt $retryCount / $maxRetries)" -ForegroundColor Green
+            if (Test-Path $logFile) {
+              $content = Get-Content $logFile -Raw -ErrorAction SilentlyContinue
+              if ($content -match 'https://([a-zA-Z0-9-]+)\.trycloudflare\.com') {
+                $url = "https://$($Matches[1]).trycloudflare.com"
                 break
               }
-            } catch {
-              # تجاهل الأخطاء
-            }
-            Write-Host "   Attempt $retryCount / $maxRetries : Waiting..." -ForegroundColor Gray
-          }
-
-          if (-not $apiReady) {
-            Write-Host "❌ ngrok API not ready. Displaying log:" -ForegroundColor Red
-            Get-Content $ngrokLog -Tail 20
-            exit 1
-          }
-
-      - name: Get Connection Details
-        run: |
-          Write-Host "`n=== CONNECTION DETAILS ===" -ForegroundColor Green
-          $maxRetries = 10
-          $retryCount = 0
-          $tunnelInfo = $null
-          while ($retryCount -lt $maxRetries -and -not $tunnelInfo) {
-            Start-Sleep -Seconds 2
-            $retryCount++
-            try {
-              $ngrokApi = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 5
-              if ($ngrokApi.tunnels.Count -gt 0) {
-                $tunnelInfo = $ngrokApi.tunnels[0]
+              # محاولة من المخرجات القياسية
+              $output = Get-Content "C:\cloudflared_output.log" -Raw -ErrorAction SilentlyContinue
+              if ($output -match 'https://([a-zA-Z0-9-]+)\.trycloudflare\.com') {
+                $url = "https://$($Matches[1]).trycloudflare.com"
                 break
               }
-            } catch {
-              Write-Host "   Attempt $retryCount / $maxRetries : Getting tunnel info..." -ForegroundColor Gray
             }
+            Write-Host "   Attempt $i / $retries ..." -ForegroundColor Gray
           }
 
-          if ($tunnelInfo) {
-            $publicUrl = $tunnelInfo.public_url
-            $host = $publicUrl -replace "tcp://", ""
-            Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Cyan
-            Write-Host "║         ENIGMANO RDP ACCESS          ║" -ForegroundColor Cyan
-            Write-Host "╠══════════════════════════════════════╣" -ForegroundColor Cyan
-            Write-Host "║ Host: $host" -ForegroundColor White
-            Write-Host "║ Username: runneradmin                ║" -ForegroundColor White
-            Write-Host "║ Password: P@ssw0rd!                  ║" -ForegroundColor White
-            Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Cyan
-            Write-Host "`n🔧 Connection Instructions:" -ForegroundColor Yellow
-            Write-Host "1. Open Remote Desktop Connection (mstsc)" -ForegroundColor White
-            Write-Host "2. Enter the host address above" -ForegroundColor White
-            Write-Host "3. Use the provided credentials" -ForegroundColor White
-            Write-Host "4. IMPORTANT: Minimize (don't close) this window to keep connection alive!" -ForegroundColor Red
+          if ($url) {
+            echo "tunnel_url=$url" >> $env:GITHUB_OUTPUT
+            Write-Host "✅ TUNNEL URL FOUND:" -ForegroundColor Green
+            Write-Host "👉 $url" -ForegroundColor Cyan
           } else {
-            Write-Host "❌ Could not retrieve tunnel information." -ForegroundColor Red
-            Write-Host "Last 10 lines of ngrok log:" -ForegroundColor Yellow
-            Get-Content "C:\ngrok.log" -Tail 10
+            Write-Host "❌ Could not extract URL automatically." -ForegroundColor Red
+            echo "tunnel_url=NOT_FOUND" >> $env:GITHUB_OUTPUT
+            Write-Host "Last 20 lines of cloudflared log:" -ForegroundColor Yellow
+            Get-Content $logFile -Tail 20
           }
+
+      - name: Display Connection Details
+        run: |
+          $url = "${{ steps.tunnel.outputs.tunnel_url }}"
+          Write-Host "`n==============================================" -ForegroundColor Cyan
+          Write-Host "🖥️  RDP TUNNEL ACTIVE" -ForegroundColor Green
+          Write-Host "==============================================" -ForegroundColor Cyan
+          if ($url -ne "NOT_FOUND") {
+            Write-Host "👉 USE THIS URL:" -ForegroundColor Yellow
+            Write-Host "   $url" -ForegroundColor White
+            Write-Host ""
+            Write-Host "🔧 CONNECT WITH THIS COMMAND (run locally):" -ForegroundColor Yellow
+            Write-Host "   cloudflared access tcp --hostname $url --url localhost:3389" -ForegroundColor White
+            Write-Host ""
+            Write-Host "📋 Then open Remote Desktop Connection (mstsc) and connect to:" -ForegroundColor Yellow
+            Write-Host "   localhost:3389" -ForegroundColor White
+          } else {
+            Write-Host "⚠️  URL not found automatically. Check logs above." -ForegroundColor Red
+          }
+          Write-Host "----------------------------------------------" -ForegroundColor Cyan
+          Write-Host "👤 Username: runneradmin" -ForegroundColor Yellow
+          Write-Host "🔑 Password: P@ssw0rd123!" -ForegroundColor Yellow
+          Write-Host "==============================================" -ForegroundColor Cyan
 
       - name: Keep Session Alive
         run: |
-          Write-Host "`n=== SESSION ACTIVE ===" -ForegroundColor Green
-          Write-Host "EnigMano RDP instance is now running!" -ForegroundColor Cyan
-          Write-Host "Instance will remain active for up to 6 hours." -ForegroundColor Yellow
-          Write-Host "Do not close this window to maintain the connection." -ForegroundColor Red
-          $counter = 0
+          Write-Host "⏳ Session Active - Keeping alive..." -ForegroundColor Green
           while ($true) {
-            $counter++
-            Write-Host "Session active - Heartbeat #$counter ($(Get-Date))" -ForegroundColor Green
-            # كل 5 دقائق، نتحقق من حالة ngrok ونعيد التشغيل إذا لزم الأمر
-            if ($counter % 5 -eq 0) {
-              try {
-                $ngrokStatus = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 5 -ErrorAction Stop
-                if ($ngrokStatus.tunnels.Count -gt 0) {
-                  Write-Host "ngrok tunnel status: ACTIVE" -ForegroundColor Green
-                } else {
-                  Write-Host "ngrok tunnel status: NO TUNNELS" -ForegroundColor Yellow
-                }
-              } catch {
-                Write-Host "ngrok tunnel status: ERROR - Restarting..." -ForegroundColor Red
-                taskkill /F /IM ngrok.exe 2>$null
-                Start-Sleep -Seconds 3
-                Start-Process -FilePath "C:\ngrok\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -NoNewWindow -RedirectStandardOutput "C:\ngrok.log"
-              }
-            }
             Start-Sleep -Seconds 60
+            Write-Host "✓ Active - $(Get-Date -Format 'HH:mm:ss')"
           }
