@@ -21,29 +21,22 @@ jobs:
           choco install googlechrome -y
           Write-Host "✅ Chrome installed!" -ForegroundColor Green
 
-      - name: Install Chrome Remote Desktop
+      - name: Install Chrome Remote Desktop (Updated URL)
         run: |
           Write-Host "📥 Installing Chrome Remote Desktop..." -ForegroundColor Green
-          # الرابط المحدث لتحميل Chrome Remote Desktop
+          # الرابط الصحيح والمحدث لتحميل Chrome Remote Desktop
           $crdUrl = "https://dl.google.com/remote/desktop/chromeremotedesktop.msi"
-          Invoke-WebRequest -Uri $crdUrl -OutFile "crd.msi"
-          if (Test-Path "crd.msi") {
-            Write-Host "✅ Download successful!" -ForegroundColor Green
-            Start-Process -FilePath "msiexec" -ArgumentList "/i crd.msi /quiet /norestart" -NoNewWindow -Wait
-            Write-Host "✅ Chrome Remote Desktop installed!" -ForegroundColor Green
-          } else {
-            Write-Host "❌ Download failed, trying alternative source..." -ForegroundColor Yellow
-            # رابط بديل من موقع Google الرسمي
-            $crdUrlAlt = "https://dl.google.com/remote/desktop/chromeremotedesktop.msi"
-            Invoke-WebRequest -Uri $crdUrlAlt -OutFile "crd.msi"
-            if (Test-Path "crd.msi") {
-              Start-Process -FilePath "msiexec" -ArgumentList "/i crd.msi /quiet /norestart" -NoNewWindow -Wait
-              Write-Host "✅ Chrome Remote Desktop installed (alternative source)!" -ForegroundColor Green
-            } else {
-              Write-Host "❌ Failed to download Chrome Remote Desktop." -ForegroundColor Red
-              exit 1
-            }
+          # محاولة بديلة إذا فشل الرابط الأول
+          try {
+            Invoke-WebRequest -Uri $crdUrl -OutFile "crd.msi" -ErrorAction Stop
+          } catch {
+            Write-Host "⚠️ الرابط الأول فشل، نحاول رابط آخر..." -ForegroundColor Yellow
+            $crdUrl = "https://dl.google.com/remote/desktop/chromeremotedesktop-64.msi"
+            Invoke-WebRequest -Uri $crdUrl -OutFile "crd.msi"
           }
+          Write-Host "📦 Installing MSI package..." -ForegroundColor Green
+          Start-Process -FilePath "msiexec" -ArgumentList "/i crd.msi /quiet /norestart" -NoNewWindow -Wait
+          Write-Host "✅ Chrome Remote Desktop installed!" -ForegroundColor Green
 
       - name: Start Chrome Remote Desktop Host
         run: |
@@ -54,20 +47,22 @@ jobs:
           $name = "${{ github.event.inputs.instance_name }}" -replace " ", "-"
           if (-not $name) { $name = $Env:COMPUTERNAME }
           
-          # تشغيل الأمر لتسجيل الجهاز
-          $hostPath = "${Env:PROGRAMFILES(X86)}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe"
-          if (Test-Path $hostPath) {
-            & $hostPath --code="$code" --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="$name"
+          # التحقق من وجود الملف قبل التشغيل
+          $hostExe = "${Env:PROGRAMFILES(X86)}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe"
+          if (Test-Path $hostExe) {
+            Write-Host "✅ Found host executable" -ForegroundColor Green
+            & $hostExe --code="$code" --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="$name"
             Write-Host "✅ Chrome Remote Desktop is ready!" -ForegroundColor Green
           } else {
-            Write-Host "❌ Chrome Remote Desktop host not found. Trying alternative path..." -ForegroundColor Yellow
-            # محاولة المسار الآخر
-            $hostPathAlt = "${Env:PROGRAMFILES}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe"
-            if (Test-Path $hostPathAlt) {
-              & $hostPathAlt --code="$code" --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="$name"
-              Write-Host "✅ Chrome Remote Desktop is ready (alternative path)!" -ForegroundColor Green
+            Write-Host "❌ Host executable not found. Trying alternative path..." -ForegroundColor Red
+            $hostExe = "${Env:PROGRAMFILES}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe"
+            if (Test-Path $hostExe) {
+              Write-Host "✅ Found host executable in alternative path" -ForegroundColor Green
+              & $hostExe --code="$code" --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="$name"
+              Write-Host "✅ Chrome Remote Desktop is ready!" -ForegroundColor Green
             } else {
-              Write-Host "❌ Chrome Remote Desktop host not found in any location." -ForegroundColor Red
+              Write-Host "❌ Chrome Remote Desktop host not found. Installation may have failed." -ForegroundColor Red
+              Write-Host "Please check the logs above for errors." -ForegroundColor Yellow
               exit 1
             }
           }
