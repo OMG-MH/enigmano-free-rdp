@@ -1,4 +1,4 @@
-name: Chrome Remote Desktop - Full Desktop in Browser
+name: Chrome Remote Desktop - Full Desktop
 
 on:
   workflow_dispatch:
@@ -24,25 +24,13 @@ jobs:
       - name: Download Chrome Remote Desktop Host
         run: |
           Write-Host "📥 Downloading Chrome Remote Desktop Host..." -ForegroundColor Green
-          
-          # الرابط الصحيح الذي شاركته
           $url = "https://dl.google.com/edgedl/chrome-remote-desktop/chromeremotedesktophost.msi"
-          
-          # استخدام curl.exe بدلاً من Invoke-WebRequest لتجنب حظر Google
           curl.exe -L -o "crd.msi" $url
-          
-          if (Test-Path "crd.msi") {
-            Write-Host "✅ Download successful!" -ForegroundColor Green
-          } else {
-            Write-Host "❌ Download failed! Trying fallback URL..." -ForegroundColor Red
-            # رابط احتياطي
-            $fallbackUrl = "https://dl.google.com/dl/edgedl/chrome-remote-desktop/chromeremotedesktophost.msi"
-            curl.exe -L -o "crd.msi" $fallbackUrl
-            if (-not (Test-Path "crd.msi")) {
-              Write-Host "❌ All download attempts failed!" -ForegroundColor Red
-              exit 1
-            }
+          if (-not (Test-Path "crd.msi")) {
+            Write-Host "❌ Download failed!" -ForegroundColor Red
+            exit 1
           }
+          Write-Host "✅ Download successful!" -ForegroundColor Green
 
       - name: Install Chrome Remote Desktop
         run: |
@@ -50,18 +38,29 @@ jobs:
           Start-Process -FilePath "msiexec" -ArgumentList "/i crd.msi /quiet /norestart" -NoNewWindow -Wait
           Write-Host "✅ Chrome Remote Desktop installed!" -ForegroundColor Green
 
-      - name: Start Chrome Remote Desktop Host
+      - name: Start Chrome Remote Desktop Host (with PIN)
         run: |
-          Write-Host "🚀 Starting Chrome Remote Desktop..." -ForegroundColor Green
+          Write-Host "🚀 Starting Chrome Remote Desktop with PIN..." -ForegroundColor Green
           
-          # ⚠️ مهم: استبدل هذا الكود بكود جديد من https://remotedesktop.google.com/headless
-          $code = "4/0AXEQxIA6psv6Ny71wLo3hPa1ZoVF9-8Cm6Yfo7NKuNfMoBo_WLyj2cJoOaaHrsLWDfyA1w"
+          # الكود الجديد الذي نسخته من Google
+          $code = "4/0AXEQxICDFP_PzUWR2RojqVJlfd8TMx4cQd2tXzk_Eoyt0v8FZ6GlWldyyQbWN0GPsEe_EQ"
+          
+          # اسم الجهاز
           $name = "${{ github.event.inputs.instance_name }}" -replace " ", "-"
           if (-not $name) { $name = $Env:COMPUTERNAME }
           
-          & "${Env:PROGRAMFILES(X86)}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe" --code="$code" --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="$name"
+          # رقم PIN من 6 أرقام (يمكنك تغييره)
+          $pin = "123456"
+          
+          # الأمر مع --pin لحل المشكلة
+          & "${Env:PROGRAMFILES(X86)}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe" `
+            --code="$code" `
+            --redirect-url="https://remotedesktop.google.com/_/oauthredirect" `
+            --name="$name" `
+            --pin="$pin"
           
           Write-Host "✅ Chrome Remote Desktop is ready!" -ForegroundColor Green
+          Write-Host "🔑 PIN: $pin" -ForegroundColor Yellow
 
       - name: Display Connection Instructions
         run: |
@@ -77,8 +76,9 @@ jobs:
           Write-Host "  2️⃣ ستظهر قائمة بأجهزتك. ابحث عن هذا الجهاز:" -ForegroundColor White
           Write-Host "     📱 الاسم: ${{ github.event.inputs.instance_name }}" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  3️⃣ انقر على الجهاز وانتظر ثوانٍ" -ForegroundColor White
-          Write-Host "  4️⃣ ستظهر شاشة Windows Server كاملة في المتصفح!" -ForegroundColor Green
+          Write-Host "  3️⃣ انقر على الجهاز" -ForegroundColor White
+          Write-Host "  4️⃣ أدخل الرقم السري (PIN): 123456" -ForegroundColor Yellow
+          Write-Host "  5️⃣ ستظهر شاشة Windows Server كاملة في المتصفح!" -ForegroundColor Green
           Write-Host ""
           Write-Host "⚠️  مهم:" -ForegroundColor Red
           Write-Host "  - لا تغلق هذه النافذة (تبقي الجلسة نشطة)" -ForegroundColor Yellow
