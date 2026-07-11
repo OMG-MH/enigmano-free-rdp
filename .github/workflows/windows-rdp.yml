@@ -1,4 +1,4 @@
-name: EnigMano Instance Deployment
+name: EnigMano Instance Deployment (Fixed)
 
 on:
   workflow_dispatch:
@@ -55,7 +55,7 @@ jobs:
           Write-Host "Configuring ngrok..." -ForegroundColor Green
           C:\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_SHAHZAIB }}
 
-      - name: Install Essential Software
+      - name: Install Essential Software (Optional)
         run: |
           Write-Host "Installing essential software..." -ForegroundColor Green
           Set-ExecutionPolicy Bypass -Scope Process -Force
@@ -66,58 +66,63 @@ jobs:
           choco install notepadplusplus -y
           Write-Host "Software installation completed!" -ForegroundColor Green
 
-      - name: Configure Chrome Extensions
+      - name: Start ngrok Tunnel (Improved)
+        id: start_ngrok
         run: |
-          Write-Host "Configuring Chrome with security extensions..." -ForegroundColor Green
-          $ChromePrefs = @"
-          {
-            "extensions": {
-              "settings": {
-                "cjpalhdlnbpafiamejdnhcphjbkeiagm": {
-                  "state": 1,
-                  "was_installed_by_default": false,
-                  "was_installed_by_oem": false,
-                  "was_installed_by_custodian": false,
-                  "creation_flags": 1,
-                  "location": 1,
-                  "manifest": {
-                    "name": "uBlock Origin",
-                    "version": "1.0"
-                  }
-                }
+          Write-Host "Starting ngrok tunnel with logging..." -ForegroundColor Green
+          # تشغيل ngrok مع تسجيل المخرجات إلى ملف
+          $ngrokLog = "C:\ngrok.log"
+          Start-Process -FilePath "C:\ngrok\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -NoNewWindow -RedirectStandardOutput $ngrokLog
+          Write-Host "ngrok process started. Waiting for it to be ready..." -ForegroundColor Yellow
+          
+          # الانتظار حتى يصبح المنفذ 4040 مفتوحاً (واجهة برمجة التطبيقات)
+          $maxRetries = 30
+          $retryCount = 0
+          $apiReady = $false
+          while ($retryCount -lt $maxRetries -and -not $apiReady) {
+            Start-Sleep -Seconds 2
+            $retryCount++
+            try {
+              $test = Test-NetConnection -ComputerName 127.0.0.1 -Port 4040 -InformationLevel Quiet
+              if ($test) {
+                $apiReady = $true
+                Write-Host "✅ ngrok API is ready on port 4040 (after $retryCount attempts)." -ForegroundColor Green
+                break
               }
+            } catch {
+              # تجاهل الأخطاء
             }
+            Write-Host "   Attempt $retryCount/$maxRetries: Waiting for ngrok API..." -ForegroundColor Gray
           }
-          "@
-          $ChromeDir = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default"
-          if (!(Test-Path $ChromeDir)) {
-            New-Item -ItemType Directory -Path $ChromeDir -Force
+          
+          if (-not $apiReady) {
+            Write-Host "❌ ngrok API did not become ready. Displaying log:" -ForegroundColor Red
+            Get-Content $ngrokLog -Tail 20
+            exit 1
           }
-          $ChromePrefs | Out-File -FilePath "$ChromeDir\Preferences" -Encoding UTF8
-
-      - name: Setup Cloudflare WARP
-        run: |
-          Write-Host "Setting up Cloudflare WARP..." -ForegroundColor Green
-          try {
-            Invoke-WebRequest -Uri "https://1111-releases.cloudflareclient.com/windows/Cloudflare_WARP_Release-x64.msi" -OutFile "CloudflareWARP.msi"
-            Start-Process msiexec.exe -Wait -ArgumentList '/I CloudflareWARP.msi /quiet'
-            Write-Host "Cloudflare WARP installed successfully!" -ForegroundColor Green
-          } catch {
-            Write-Host "Cloudflare WARP installation failed, continuing..." -ForegroundColor Yellow
-          }
-
-      - name: Start ngrok Tunnel
-        run: |
-          Write-Host "Starting ngrok tunnel..." -ForegroundColor Green
-          Start-Process -FilePath "C:\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
-          Start-Sleep -Seconds 10
 
       - name: Get Connection Details
         run: |
           Write-Host "`n=== CONNECTION DETAILS ===" -ForegroundColor Green
-          try {
-            $ngrokApi = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
-            $publicUrl = $ngrokApi.tunnels[0].public_url
+          $maxRetries = 5
+          $retryCount = 0
+          $tunnelInfo = $null
+          while ($retryCount -lt $maxRetries -and -not $tunnelInfo) {
+            Start-Sleep -Seconds 2
+            $retryCount++
+            try {
+              $ngrokApi = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 5
+              if ($ngrokApi.tunnels.Count -gt 0) {
+                $tunnelInfo = $ngrokApi.tunnels[0]
+                break
+              }
+            } catch {
+              Write-Host "   Attempt $retryCount/$maxRetries: Could not get tunnel info..." -ForegroundColor Gray
+            }
+          }
+          
+          if ($tunnelInfo) {
+            $publicUrl = $tunnelInfo.public_url
             $host = $publicUrl -replace "tcp://", ""
             Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Cyan
             Write-Host "║         ENIGMANO RDP ACCESS          ║" -ForegroundColor Cyan
@@ -126,21 +131,15 @@ jobs:
             Write-Host "║ Username: runneradmin                ║" -ForegroundColor White
             Write-Host "║ Password: P@ssw0rd!                  ║" -ForegroundColor White
             Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Cyan
-            Write-Host "`nConnection Instructions:" -ForegroundColor Yellow
-            Write-Host "1. Open Remote Desktop Connection" -ForegroundColor White
+            Write-Host "`n🔧 Connection Instructions:" -ForegroundColor Yellow
+            Write-Host "1. Open Remote Desktop Connection (mstsc)" -ForegroundColor White
             Write-Host "2. Enter the host address above" -ForegroundColor White
             Write-Host "3. Use the provided credentials" -ForegroundColor White
             Write-Host "4. IMPORTANT: Minimize (don't close) this window to keep connection alive!" -ForegroundColor Red
-          } catch {
-            Write-Host "Error getting ngrok details. Waiting 5 seconds..." -ForegroundColor Red
-            Start-Sleep -Seconds 5
-            try {
-              $ngrokApi = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
-              $publicUrl = $ngrokApi.tunnels[0].public_url
-              Write-Host "Manual check - ngrok URL: $publicUrl" -ForegroundColor Green
-            } catch {
-              Write-Host "ngrok API not accessible. Please check ngrok status manually." -ForegroundColor Red
-            }
+          } else {
+            Write-Host "❌ Could not retrieve tunnel information." -ForegroundColor Red
+            Write-Host "Last 10 lines of ngrok log:" -ForegroundColor Yellow
+            Get-Content "C:\ngrok.log" -Tail 10
           }
 
       - name: Keep Session Alive
@@ -153,16 +152,23 @@ jobs:
           while ($true) {
             $counter++
             Write-Host "Session active - Heartbeat #$counter ($(Get-Date))" -ForegroundColor Green
-            try {
-              $ngrokStatus = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 5
-              if ($ngrokStatus.tunnels.Count -gt 0) {
-                Write-Host "ngrok tunnel status: ACTIVE" -ForegroundColor Green
-              } else {
-                Write-Host "ngrok tunnel status: NO TUNNELS" -ForegroundColor Yellow
+            # تحقق من ngrok كل 5 دقائق وأعد التشغيل إذا لزم الأمر
+            if ($counter % 5 -eq 0) {
+              try {
+                $ngrokStatus = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 5 -ErrorAction Stop
+                if ($ngrokStatus.tunnels.Count -gt 0) {
+                  Write-Host "ngrok tunnel status: ACTIVE" -ForegroundColor Green
+                } else {
+                  Write-Host "ngrok tunnel status: NO TUNNELS" -ForegroundColor Yellow
+                }
+              } catch {
+                Write-Host "ngrok tunnel status: ERROR - Attempting restart..." -ForegroundColor Red
+                # قتل أي عملية ngrok قديمة
+                taskkill /F /IM ngrok.exe 2>$null
+                Start-Sleep -Seconds 3
+                # إعادة تشغيل ngrok
+                Start-Process -FilePath "C:\ngrok\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -NoNewWindow -RedirectStandardOutput "C:\ngrok.log"
               }
-            } catch {
-              Write-Host "ngrok tunnel status: ERROR - Restarting..." -ForegroundColor Red
-              Start-Process -FilePath "C:\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
             }
             Start-Sleep -Seconds 60
           }
