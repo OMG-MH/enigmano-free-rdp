@@ -43,7 +43,7 @@ jobs:
           Write-Host "🚀 Starting Chrome Remote Desktop with PIN..." -ForegroundColor Green
           
           # الكود الجديد الذي نسخته من Google
-          $code = "4/0AXEQxIBlamEx9xXrJVhyIxXKmc06fjY8L1BC1-W3xzEx2vDDGZdsWVPKEFEbCeCDR8bjVQ"
+          $code = "4/0AXEQxIBgg6GzJvyE-vriAHZXUeiicZDAlYyg4U9Ah979wEidHjBovdpGzgARyTfJOAvMsw"
           
           # اسم الجهاز
           $name = "${{ github.event.inputs.instance_name }}" -replace " ", "-"
