@@ -1,4 +1,4 @@
-name: Android Remote Desktop - Full Emulator
+name: Android Remote Desktop - Fixed
 
 on:
   workflow_dispatch:
@@ -20,20 +20,33 @@ jobs:
           sudo apt update
           sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk
 
-      - name: تثبيت Android SDK (Command line tools)
+      - name: تثبيت Android SDK (Command line tools) - الطريقة الصحيحة
         run: |
-          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-          unzip commandlinetools-linux-9477386_latest.zip -d android-sdk
+          # إنشاء المجلدات
           mkdir -p android-sdk/cmdline-tools
-          mv android-sdk/cmdline-tools android-sdk/cmdline-tools/latest
+          cd android-sdk/cmdline-tools
+          # تحميل الأدوات
+          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          unzip commandlinetools-linux-9477386_latest.zip
+          # نقل المحتويات إلى مجلد 'latest' (هذا هو الهيكل المطلوب)
+          mkdir -p latest
+          mv cmdline-tools/* latest/ 2>/dev/null || mv * latest/ 2>/dev/null || true
+          # حذف المجلد الفارغ إن وجد
+          rm -rf cmdline-tools
+          cd ../../
+          # تعيين المتغيرات
           export ANDROID_SDK_ROOT=$PWD/android-sdk
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           echo "ANDROID_SDK_ROOT=$PWD/android-sdk" >> $GITHUB_ENV
           echo "$PWD/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$PWD/android-sdk/platform-tools" >> $GITHUB_PATH
+          # تحقق من وجود sdkmanager
+          ls -la $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/
 
       - name: قبول التراخيص وإنشاء المحاكي
         run: |
+          export ANDROID_SDK_ROOT=${{ env.ANDROID_SDK_ROOT }}
+          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-30" "system-images;android-30;google_apis;x86_64"
           sdkmanager "emulator"
@@ -42,54 +55,44 @@ jobs:
       - name: تشغيل المحاكي في الخلفية
         run: |
           export ANDROID_SDK_ROOT=${{ env.ANDROID_SDK_ROOT }}
-          export PATH=$ANDROID_SDK_ROOT/emulator:$PATH
+          export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
           emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 &
-          sleep 30  # انتظار إقلاع المحاكي
+          sleep 40  # انتظار إقلاع المحاكي (قد يزيد)
 
-      - name: بدء خادم VNC على شاشة افتراضية
+      - name: بدء خادم VNC و noVNC
         run: |
-          # إنشاء شاشة افتراضية بحجم مناسب
+          # شاشة افتراضية
           Xvfb :99 -screen 0 1280x720x24 &
           sleep 2
           export DISPLAY=:99
-          # تشغيل مدير النوافذ (fluxbox) لتوفير سطح مكتب بسيط
           fluxbox &
           sleep 2
-          # تشغيل x11vnc لالتقاط الشاشة الافتراضية
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
-          # تشغيل noVNC (خادم ويب VNC) على المنفذ 6080
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تنزيل وتشغيل ngrok لنشر المنفذ 6080 (WebVNC)
+      - name: تشغيل ngrok لنشر المنفذ 6080
         run: |
           wget https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
           unzip ngrok-stable-linux-amd64.zip
           chmod +x ngrok
-          # قم بوضع token الخاص بك (يمكنك إضافته كـ Secret)
-          # ./ngrok authtoken ${{ secrets.NGROK_TOKEN }} 
-          # بدء النفق على المنفذ 6080
+          # إذا كان لديك token، استخدمه
+          # ./ngrok authtoken ${{ secrets.NGROK_TOKEN }}
           ./ngrok http 6080 &
           sleep 5
-          # الحصول على الرابط العام
           curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
 
       - name: عرض تعليمات الاتصال
         run: |
           echo "═══════════════════════════════════════════════════════════════"
-          echo "🖥️  ANDROID REMOTE DESKTOP - سطح مكتب أندرويد كامل"
+          echo "🖥️  ANDROID REMOTE DESKTOP - تم الإصلاح ✅"
           echo "═══════════════════════════════════════════════════════════════"
           echo ""
-          echo "📌 خطوات الاتصال:"
-          echo "  1️⃣ افتح الرابط التالي في متصفحك:"
+          echo "📌 رابط الاتصال (انسخه وافتحه في المتصفح):"
           cat url.txt
           echo ""
-          echo "  2️⃣ ستظهر واجهة noVNC، انقر على 'Connect'"
-          echo "  3️⃣ كلمة المرور للـ VNC هي: 123456"
+          echo "🔑 كلمة مرور VNC: 123456"
           echo ""
-          echo "  4️⃣ ستظهر شاشة المحاكي (Android) وسطح المكتب (fluxbox)"
-          echo "     يمكنك فتح التطبيقات من القائمة أو تشغيل أي تطبيق Android"
-          echo ""
-          echo "⚠️  ملاحظة: المحاكي يحتاج إلى وقت للإقلاع، انتظر دقيقة ثم استخدمه"
+          echo "⚠️ ملاحظة: قد يستغرق المحاكي دقيقة أو أكثر للإقلاع، انتظر ثم استخدمه."
           echo "═══════════════════════════════════════════════════════════════"
 
       - name: إبقاء الجلسة نشطة
