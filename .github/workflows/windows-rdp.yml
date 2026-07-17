@@ -1,98 +1,101 @@
-name: Chrome Remote Desktop - Full Desktop
+name: Android Remote Desktop - Full Emulator
 
 on:
   workflow_dispatch:
     inputs:
       instance_name:
-        description: 'اسم الجهاز'
+        description: 'اسم الجهاز (سيظهر في العنوان)'
         required: false
-        default: 'GitHub-Runner'
+        default: 'Android-Emulator'
         type: string
 
 jobs:
-  crd:
-    runs-on: windows-latest
+  android:
+    runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
-      - name: Install Google Chrome
+      - name: تثبيت المتطلبات الأساسية
         run: |
-          Write-Host "📥 Installing Google Chrome..." -ForegroundColor Green
-          choco install googlechrome -y
-          Write-Host "✅ Chrome installed!" -ForegroundColor Green
+          sudo apt update
+          sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk
 
-      - name: Download Chrome Remote Desktop Host
+      - name: تثبيت Android SDK (Command line tools)
         run: |
-          Write-Host "📥 Downloading Chrome Remote Desktop Host..." -ForegroundColor Green
-          $url = "https://dl.google.com/edgedl/chrome-remote-desktop/chromeremotedesktophost.msi"
-          curl.exe -L -o "crd.msi" $url
-          if (-not (Test-Path "crd.msi")) {
-            Write-Host "❌ Download failed!" -ForegroundColor Red
-            exit 1
-          }
-          Write-Host "✅ Download successful!" -ForegroundColor Green
+          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          unzip commandlinetools-linux-9477386_latest.zip -d android-sdk
+          mkdir -p android-sdk/cmdline-tools
+          mv android-sdk/cmdline-tools android-sdk/cmdline-tools/latest
+          export ANDROID_SDK_ROOT=$PWD/android-sdk
+          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
+          echo "ANDROID_SDK_ROOT=$PWD/android-sdk" >> $GITHUB_ENV
+          echo "$PWD/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$PWD/android-sdk/platform-tools" >> $GITHUB_PATH
 
-      - name: Install Chrome Remote Desktop
+      - name: قبول التراخيص وإنشاء المحاكي
         run: |
-          Write-Host "Installing Chrome Remote Desktop..." -ForegroundColor Green
-          Start-Process -FilePath "msiexec" -ArgumentList "/i crd.msi /quiet /norestart" -NoNewWindow -Wait
-          Write-Host "✅ Chrome Remote Desktop installed!" -ForegroundColor Green
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-30" "system-images;android-30;google_apis;x86_64"
+          sdkmanager "emulator"
+          echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4"
 
-      - name: Start Chrome Remote Desktop Host (with PIN)
+      - name: تشغيل المحاكي في الخلفية
         run: |
-          Write-Host "🚀 Starting Chrome Remote Desktop with PIN..." -ForegroundColor Green
-          
-          # الكود الجديد الذي نسخته من Google
-          $code = "4/0AXEQxIBgg6GzJvyE-vriAHZXUeiicZDAlYyg4U9Ah979wEidHjBovdpGzgARyTfJOAvMsw"
-          
-          # اسم الجهاز
-          $name = "${{ github.event.inputs.instance_name }}" -replace " ", "-"
-          if (-not $name) { $name = $Env:COMPUTERNAME }
-          
-          # رقم PIN من 6 أرقام (يمكنك تغييره)
-          $pin = "123456"
-          
-          # الأمر مع --pin لحل المشكلة
-          & "${Env:PROGRAMFILES(X86)}\Google\Chrome Remote Desktop\CurrentVersion\remoting_start_host.exe" `
-            --code="$code" `
-            --redirect-url="https://remotedesktop.google.com/_/oauthredirect" `
-            --name="$name" `
-            --pin="$pin"
-          
-          Write-Host "✅ Chrome Remote Desktop is ready!" -ForegroundColor Green
-          Write-Host "🔑 PIN: $pin" -ForegroundColor Yellow
+          export ANDROID_SDK_ROOT=${{ env.ANDROID_SDK_ROOT }}
+          export PATH=$ANDROID_SDK_ROOT/emulator:$PATH
+          emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 &
+          sleep 30  # انتظار إقلاع المحاكي
 
-      - name: Display Connection Instructions
+      - name: بدء خادم VNC على شاشة افتراضية
         run: |
-          Write-Host "`n" -ForegroundColor White
-          Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-          Write-Host "🖥️  CHROME REMOTE DESKTOP - سطح مكتب كامل في المتصفح" -ForegroundColor Green
-          Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-          Write-Host ""
-          Write-Host "📌 خطوات الاتصال:" -ForegroundColor Yellow
-          Write-Host "  1️⃣ افتح هذا الرابط في متصفحك:" -ForegroundColor White
-          Write-Host "     👉 https://remotedesktop.google.com/access" -ForegroundColor Cyan
-          Write-Host ""
-          Write-Host "  2️⃣ ستظهر قائمة بأجهزتك. ابحث عن هذا الجهاز:" -ForegroundColor White
-          Write-Host "     📱 الاسم: ${{ github.event.inputs.instance_name }}" -ForegroundColor Cyan
-          Write-Host ""
-          Write-Host "  3️⃣ انقر على الجهاز" -ForegroundColor White
-          Write-Host "  4️⃣ أدخل الرقم السري (PIN): 123456" -ForegroundColor Yellow
-          Write-Host "  5️⃣ ستظهر شاشة Windows Server كاملة في المتصفح!" -ForegroundColor Green
-          Write-Host ""
-          Write-Host "⚠️  مهم:" -ForegroundColor Red
-          Write-Host "  - لا تغلق هذه النافذة (تبقي الجلسة نشطة)" -ForegroundColor Yellow
-          Write-Host "  - يمكنك فتح عدة أجهزة بتشغيل Workflows متعددة" -ForegroundColor Yellow
-          Write-Host ""
-          Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+          # إنشاء شاشة افتراضية بحجم مناسب
+          Xvfb :99 -screen 0 1280x720x24 &
+          sleep 2
+          export DISPLAY=:99
+          # تشغيل مدير النوافذ (fluxbox) لتوفير سطح مكتب بسيط
+          fluxbox &
+          sleep 2
+          # تشغيل x11vnc لالتقاط الشاشة الافتراضية
+          x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
+          # تشغيل noVNC (خادم ويب VNC) على المنفذ 6080
+          websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: Keep Session Alive
+      - name: تنزيل وتشغيل ngrok لنشر المنفذ 6080 (WebVNC)
         run: |
-          Write-Host "⏳ الجلسة نشطة - الحفاظ على الاتصال..." -ForegroundColor Green
-          Write-Host "🔗 يمكنك الاتصال الآن من: https://remotedesktop.google.com/access" -ForegroundColor Yellow
-          $counter = 0
-          while ($true) {
-            $counter++
-            Write-Host "✓ Heartbeat #$counter - $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Gray
-            Start-Sleep -Seconds 60
-          }
+          wget https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
+          unzip ngrok-stable-linux-amd64.zip
+          chmod +x ngrok
+          # قم بوضع token الخاص بك (يمكنك إضافته كـ Secret)
+          # ./ngrok authtoken ${{ secrets.NGROK_TOKEN }} 
+          # بدء النفق على المنفذ 6080
+          ./ngrok http 6080 &
+          sleep 5
+          # الحصول على الرابط العام
+          curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
+
+      - name: عرض تعليمات الاتصال
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "🖥️  ANDROID REMOTE DESKTOP - سطح مكتب أندرويد كامل"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "📌 خطوات الاتصال:"
+          echo "  1️⃣ افتح الرابط التالي في متصفحك:"
+          cat url.txt
+          echo ""
+          echo "  2️⃣ ستظهر واجهة noVNC، انقر على 'Connect'"
+          echo "  3️⃣ كلمة المرور للـ VNC هي: 123456"
+          echo ""
+          echo "  4️⃣ ستظهر شاشة المحاكي (Android) وسطح المكتب (fluxbox)"
+          echo "     يمكنك فتح التطبيقات من القائمة أو تشغيل أي تطبيق Android"
+          echo ""
+          echo "⚠️  ملاحظة: المحاكي يحتاج إلى وقت للإقلاع، انتظر دقيقة ثم استخدمه"
+          echo "═══════════════════════════════════════════════════════════════"
+
+      - name: إبقاء الجلسة نشطة
+        run: |
+          echo "⏳ الجلسة نشطة - سيتم إبقاؤها لمدة 6 ساعات"
+          while true; do
+            echo "✓ Heartbeat $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            sleep 60
+          done
