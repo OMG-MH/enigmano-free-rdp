@@ -1,10 +1,10 @@
-name: Android Remote Desktop - Fixed
+name: Android Remote Desktop - Fixed (ngrok)
 
 on:
   workflow_dispatch:
     inputs:
       instance_name:
-        description: 'اسم الجهاز (سيظهر في العنوان)'
+        description: 'اسم الجهاز (اختياري)'
         required: false
         default: 'Android-Emulator'
         type: string
@@ -18,29 +18,23 @@ jobs:
       - name: تثبيت المتطلبات الأساسية
         run: |
           sudo apt update
-          sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk
+          sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk ssh
 
-      - name: تثبيت Android SDK (Command line tools) - الطريقة الصحيحة
+      - name: تثبيت Android SDK (الطريقة الصحيحة)
         run: |
-          # إنشاء المجلدات
-          mkdir -p android-sdk/cmdline-tools
-          cd android-sdk/cmdline-tools
-          # تحميل الأدوات
+          mkdir -p android-sdk
+          cd android-sdk
           wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
           unzip commandlinetools-linux-9477386_latest.zip
-          # نقل المحتويات إلى مجلد 'latest' (هذا هو الهيكل المطلوب)
-          mkdir -p latest
-          mv cmdline-tools/* latest/ 2>/dev/null || mv * latest/ 2>/dev/null || true
-          # حذف المجلد الفارغ إن وجد
-          rm -rf cmdline-tools
-          cd ../../
-          # تعيين المتغيرات
+          mkdir -p cmdline-tools
+          mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
+          cd ..
           export ANDROID_SDK_ROOT=$PWD/android-sdk
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           echo "ANDROID_SDK_ROOT=$PWD/android-sdk" >> $GITHUB_ENV
           echo "$PWD/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$PWD/android-sdk/platform-tools" >> $GITHUB_PATH
-          # تحقق من وجود sdkmanager
+          echo "$PWD/android-sdk/emulator" >> $GITHUB_PATH
+          # تحقق
           ls -la $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/
 
       - name: قبول التراخيص وإنشاء المحاكي
@@ -57,11 +51,10 @@ jobs:
           export ANDROID_SDK_ROOT=${{ env.ANDROID_SDK_ROOT }}
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
           emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 &
-          sleep 40  # انتظار إقلاع المحاكي (قد يزيد)
+          sleep 60  # انتظار إقلاع كافٍ
 
       - name: بدء خادم VNC و noVNC
         run: |
-          # شاشة افتراضية
           Xvfb :99 -screen 0 1280x720x24 &
           sleep 2
           export DISPLAY=:99
@@ -70,34 +63,32 @@ jobs:
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تشغيل ngrok لنشر المنفذ 6080
+      - name: تشغيل ngrok (باستخدام التوكن المقدم)
         run: |
           wget https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
           unzip ngrok-stable-linux-amd64.zip
           chmod +x ngrok
-          # إذا كان لديك token، استخدمه
-          # ./ngrok authtoken ${{ secrets.NGROK_TOKEN }}
+          ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
           ./ngrok http 6080 &
-          sleep 5
+          sleep 8
           curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
 
       - name: عرض تعليمات الاتصال
         run: |
           echo "═══════════════════════════════════════════════════════════════"
-          echo "🖥️  ANDROID REMOTE DESKTOP - تم الإصلاح ✅"
+          echo "🖥️  ANDROID REMOTE DESKTOP - يعمل الآن ✅"
           echo "═══════════════════════════════════════════════════════════════"
           echo ""
           echo "📌 رابط الاتصال (انسخه وافتحه في المتصفح):"
-          cat url.txt
+          cat url.txt || echo "⚠️ لم يتم العثور على رابط، تأكد من تشغيل ngrok"
           echo ""
           echo "🔑 كلمة مرور VNC: 123456"
-          echo ""
-          echo "⚠️ ملاحظة: قد يستغرق المحاكي دقيقة أو أكثر للإقلاع، انتظر ثم استخدمه."
+          echo "⚠️  انتظر دقيقة حتى يكتمل إقلاع المحاكي"
           echo "═══════════════════════════════════════════════════════════════"
 
       - name: إبقاء الجلسة نشطة
         run: |
-          echo "⏳ الجلسة نشطة - سيتم إبقاؤها لمدة 6 ساعات"
+          echo "⏳ الجلسة نشطة لمدة 6 ساعات"
           while true; do
             echo "✓ Heartbeat $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             sleep 60
