@@ -1,4 +1,4 @@
-name: Android Server - Super Fast & Fixed Docker
+name: Android Server - Fully Fixed & Super Fast Docker
 on:
   workflow_dispatch:
 
@@ -10,12 +10,12 @@ jobs:
     steps:
       - name: تثبيت المتطلبات الأساسية
         run: |
-          sudo apt update
-          sudo apt install -y nodejs npm jq curl adb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nodejs npm jq curl adb
 
       - name: تشغيل حاوية أندرويد المتوافقة (Redroid)
         run: |
-          # تشغيل أندرويد ببارامترات متوافقة مع سيرفر جيت هاب الحالي بدون تعليق
+          # تشغيل أندرويد بوضع guest للتوافق مع المعالجة الرسومية للسيرفر
           docker run -d --privileged \
             -p 5555:5555 \
             --name redroid \
@@ -25,23 +25,24 @@ jobs:
             androidboot.redroid_dpi=320 \
             redroid.gpu.mode=guest
           
-          # الانتظار حتى يعمل خادم أندرويد الداخلي ثم ربطه بـ ADB
-          sleep 10
+          # زيادة وقت الانتظار ليدخل النظام في الوضع النشط بالكامل قبل الاتصال
+          echo "⏳ انتظر 30 ثانية لإقلاع حاوية الأندرويد..."
+          sleep 30
           adb connect localhost:5555
+          sleep 5
           adb devices
 
       - name: تشغيل خادم البث السريع (ws-scrcpy)
         run: |
-          # تشغيل البديل الرسمي المستقر فائق السرعة لبث الشاشة كفيديو متحرك وسلس
+          # تم إصلاح الخطأ البرمجي وصياغة السطر ليعمل في الخلفية بنجاح
           docker run -d --name ws-scrcpy \
             --privileged \
             --net=host \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            genymobile/scrcpy:v2.4 scrcpy --v4l2-sink=/dev/video0 --no-audio --max-size=800 & || true
+            genymobile/scrcpy:v2.4 scrcpy --no-audio --max-size=800 > /dev/null 2>&1 || true
           
-          # إعداد نظام بث ويب خفيف يعتمد على الـ Node
+          # إعداد وتشغيل نظام واجهة الويب المتطورة والسريعة للبث
           sudo npm install -g @devicefarmer/stf-scrcpy-cli || true
-          # تشغيل واجهة ويب بسيطة على المنفذ 6080 لتصفح سلس
           npx ws-scrcpy -p 6080 &
           sleep 10
 
@@ -60,7 +61,7 @@ jobs:
             echo "📌 رابط أندرويد السريع جداً:"
             echo "${LT_URL}"
           fi
-          echo "💡 عند فتح الرابط، ستظهر لك أجهزة أندرويد المتاحة، اضغط على الجهاز للتحكم الفوري السلس"
+          echo "💡 عند فتح الرابط، انقر على الجهاز المفعل للتحكم السلس واللحظي"
           echo "════════════════════════════════════════════════"
 
       - name: استمرار الجلسة
