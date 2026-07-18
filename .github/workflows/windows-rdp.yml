@@ -1,73 +1,81 @@
-name: Android via Docker - VNC Remote Desktop
-
+name: Android Emulator - Final Dependencies Fix
 on:
   workflow_dispatch:
-    inputs:
-      instance_name:
-        description: 'اسم الجهاز'
-        required: false
-        default: 'Android-Docker'
-        type: string
 
 jobs:
-  android-docker:
+  android:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
-      - name: تثبيت Docker (موجود مسبقاً لكن نضمن)
+      - name: تثبيت المتطلبات الأساسية ومكتبات النظام المفقودة (حل تعارض حزم السيرفر)
         run: |
-          sudo apt update
-          sudo apt install -y docker.io
-          sudo systemctl start docker
-          sudo docker --version
+          # تم تفادي تعارض الحزم عبر تثبيت المكونات الضرورية فقط للمحاكي مباشرة
+          sudo apt-get install -y --no-install-recommends wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq nodejs npm
+          sudo apt-get install -y --no-install-recommends libpulse0 libgl1-mesa-glx libxcomposite1 libxcursor1 libasound2 libnss3
 
-      - name: تشغيل حاوية أندرويد (صورة butomo/droid-vnc)
-        run: |
-          # سحب الصورة (حجمها ~1.5GB، قد يستغرق تحميلها 2-3 دقائق)
-          sudo docker pull butomo/droid-vnc
-          # تشغيل الحاوية مع تعيين المنافذ
-          sudo docker run -d --name android -p 5900:5900 -p 6080:6080 butomo/droid-vnc
-          # انتظار إقلاع أندرويد
-          sleep 30
+      - name: إعداد Android SDK تلقائياً
+        uses: android-actions/setup-android@v3
 
-      - name: تشغيل noVNC (إذا لم يكن مدمجاً)
+      - name: تثبيت نظام Android 25 وإنشاء المحاكي
         run: |
-          # الصورة تحتوي على noVNC على المنفذ 6080، لكن نتحقق ونديره يدوياً إن لزم
-          # ننتظر حتى يصبح الخادم جاهزاً
-          sleep 10
-          echo "✅ خادم VNC يعمل على المنفذ 5900، و noVNC على 6080"
+          mkdir -p $HOME/.android/avd
+          echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> $GITHUB_ENV
+          
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-25" "system-images;android-25;google_apis;x86" "emulator"
+          
+          export ANDROID_AVD_HOME=$HOME/.android/avd
+          echo "no" | avdmanager create avd -n test_android -k "system-images;android-25;google_apis;x86" --force
 
-      - name: تشغيل ngrok مع التوكن
+      - name: تشغيل الشاشة الافتراضية و VNC
         run: |
-          wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
-          tar -xzf ngrok-v3-stable-linux-amd64.tgz
-          chmod +x ngrok
-          ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
-          ./ngrok http 6080 &
-          sleep 10
-          curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
+          Xvfb :99 -screen 0 1024x768x16 &
+          sleep 3
+          export DISPLAY=:99
+          x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
+          websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: عرض رابط الاتصال
+      - name: تشغيل المحاكي السريع وتثبيت المسارات
         run: |
-          echo "═══════════════════════════════════════════════════════════════"
-          echo "📱  ANDROID VIA DOCKER - جاهز للاستخدام ✅"
-          echo "═══════════════════════════════════════════════════════════════"
-          echo ""
-          if [ -f url.txt ] && [ -s url.txt ]; then
-            URL=$(cat url.txt)
-            echo "📌 رابط الوصول إلى أندرويد (افتحه في المتصفح):"
-            echo "${URL}/vnc.html"
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
+          export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
+          export ANDROID_AVD_HOME=$HOME/.android/avd
+          export DISPLAY=:99
+          
+          emulator -avd test_android \
+            -no-audio \
+            -no-boot-anim \
+            -accel off \
+            -gpu swiftshader_indirect \
+            -memory 1536 \
+            -cores 2 \
+            -no-snapshot-load &
+            
+          echo "⏳ انتظر دقيقتين لبدء تشغيل النظام والتحقق..."
+          sleep 120
+          adb devices
+
+      - name: تشغيل نفق الاتصال البديل (Localtunnel)
+        run: |
+          sudo npm install -g localtunnel
+          lt --port 6080 > url.txt &
+          sleep 8
+          cat url.txt
+
+      - name: روابط الاتصال والشاشة
+        run: |
+          echo "════════════════════════════════════════════════"
+          if [ -f url.txt ]; then
+            LT_URL=$(cat url.txt | grep -o 'https://[^ ]*')
+            echo "📌 رابط شاشة الأندرويد الجديد:"
+            echo "${LT_URL}/vnc_lite.html"
           fi
-          echo ""
-          echo "🔑 كلمة المرور: (لا توجد كلمة مرور – فارغة)"
-          echo "⏳ انتظر 30 ثانية إضافية حتى يظهر سطح المكتب"
-          echo "⚠️  يمكنك أيضاً استخدام أي عميل VNC على المنفذ 5900"
-          echo "═══════════════════════════════════════════════════════════════"
+          echo "🔑 كلمة المرور: 123456"
+          echo "════════════════════════════════════════════════"
 
-      - name: إبقاء الجلسة نشطة
+      - name: الحفاظ على استمرار الجلسة
         run: |
           while true; do
-            echo "✓ Heartbeat $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             sleep 60
           done
