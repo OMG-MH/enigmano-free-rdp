@@ -1,4 +1,4 @@
-name: Android Emulator - High Performance & Fixed Colors
+name: Android Server - High Speed Docker Version
 on:
   workflow_dispatch:
 
@@ -8,76 +8,45 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: تثبيت المتطلبات ومكتبات النظام الحديثة
+      - name: تثبيت المتطلبات ونظام البث
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq nodejs npm
-          sudo apt-get install -y --no-install-recommends libpulse0 libgl1 libxcomposite1 libxcursor1 libasound2t64 libnss3
+          sudo apt update
+          sudo apt install -y nodejs npm jq curl
+          # تثبيت نظام تعجيل ومكتبات التحميل لنظام Docker المخصص للأندرويد
+          sudo modprobe ashmem_linux || true
+          sudo modprobe binder_linux || true
 
-      - name: إعداد Android SDK تلقائياً
-        uses: android-actions/setup-android@v3
-
-      - name: تثبيت نظام Android 25 وإنشاء المحاكي
+      - name: تشغيل نظام أندرويد الخفيف (Redroid)
         run: |
-          mkdir -p $HOME/.android/avd
-          echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> $GITHUB_ENV
-          
-          yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-25" "system-images;android-25;google_apis;x86" "emulator"
-          
-          export ANDROID_AVD_HOME=$HOME/.android/avd
-          echo "no" | avdmanager create avd -n test_android -k "system-images;android-25;google_apis;x86" --force
+          # تشغيل أندرويد معالج برمجياً خفيف ومباشر بدون QEMU الثقيل
+          docker run -d -p 5555:5555 --name redroid redroid/redroid:11.0.0-latest \
+            androidboot.redroid_width=720 \
+            androidboot.redroid_height=1280 \
+            androidboot.redroid_dpi=320
 
-      - name: تشغيل الشاشة الافتراضية و VNC (تم تعديل الألوان لـ 24-bit)
+      - name: إعداد بث الشاشة السريع (scrcpy-web)
         run: |
-          # رفع الألوان إلى 24 وتعديل دقة الشاشة لتطابق المحاكي تماماً لإزالة الضباب والألوان المتداخلة
-          Xvfb :99 -screen 0 1024x768x24 &
-          sleep 3
-          export DISPLAY=:99
-          x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
-          websockify --web /usr/share/novnc 6080 localhost:5900 &
+          # تشغيل خادم ويب لبث شاشة الأندرويد كفيديو سريع بدلاً من الـ VNC البطيء
+          docker run -d --rm --name scrcpy-web --link redroid:redroid -p 6080:8000 srevinsaju/scrcpy-web:latest
+          sleep 10
 
-      - name: تشغيل المحاكي السريع (وضع الأداء العالي ومصلح الألوان)
-        run: |
-          export ANDROID_HOME=$ANDROID_SDK_ROOT
-          export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
-          export ANDROID_AVD_HOME=$HOME/.android/avd
-          export DISPLAY=:99
-          
-          # تغيير الـ gpu إلى software وتقليل كثافة البيكسل لسرعة استجابة مذهلة
-          emulator -avd test_android \
-            -no-audio \
-            -no-boot-anim \
-            -accel off \
-            -gpu software \
-            -skin 480x800 \
-            -memory 2048 \
-            -cores 4 \
-            -no-snapshot-load &
-            
-          echo "⏳ انتظر دقيقتين لبدء تشغيل النظام والتحقق..."
-          sleep 120
-          adb devices
-
-      - name: تشغيل نفق الاتصال البديل (Localtunnel)
+      - name: تشغيل نفق الاتصال السريع (Localtunnel)
         run: |
           sudo npm install -g localtunnel
           lt --port 6080 > url.txt &
           sleep 8
-          cat url.txt
 
-      - name: روابط الاتصال والشاشة
+      - name: روابط الاتصال السريع
         run: |
           echo "════════════════════════════════════════════════"
           if [ -f url.txt ]; then
             LT_URL=$(cat url.txt | grep -o 'https://[^ ]*')
-            echo "📌 رابط شاشة الأندرويد الجديد:"
-            echo "${LT_URL}/vnc_lite.html"
+            echo "📌 رابط أندرويد السريع (افتحه في المتصفح):"
+            echo "${LT_URL}"
           fi
-          echo "🔑 كلمة المرور: 123456"
           echo "════════════════════════════════════════════════"
 
-      - name: الحفاظ على استمرار الجلسة
+      - name: استمرار الجلسة
         run: |
           while true; do
             sleep 60
