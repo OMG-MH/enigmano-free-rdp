@@ -1,10 +1,10 @@
-name: Android Remote Desktop - Fixed (ngrok)
+name: Android Remote Desktop - Serveo (بدون ngrok)
 
 on:
   workflow_dispatch:
     inputs:
       instance_name:
-        description: 'اسم الجهاز (اختياري)'
+        description: 'اسم الجهاز'
         required: false
         default: 'Android-Emulator'
         type: string
@@ -20,44 +20,50 @@ jobs:
           sudo apt update
           sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk ssh jq
 
-      - name: تثبيت Android SDK (الهيكل الصحيح)
+      - name: تثبيت Android SDK - هيكل cmdline-tools/latest
         run: |
-          mkdir -p android-sdk
-          cd android-sdk
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          cd $HOME/android-sdk/cmdline-tools
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
           unzip -q commandlinetools-linux-9477386_latest.zip
-          # الآن لدينا مجلد cmdline-tools
-          # نعيد تسميته مؤقتاً ثم ننشئ الهيكل المطلوب: cmdline-tools/latest/
-          mv cmdline-tools cmdline-tools_temp
-          mkdir -p cmdline-tools/latest
-          mv cmdline-tools_temp/* cmdline-tools/latest/
-          rm -rf cmdline-tools_temp
-          cd ..
-          export ANDROID_SDK_ROOT=$PWD/android-sdk
-          echo "ANDROID_SDK_ROOT=$PWD/android-sdk" >> $GITHUB_ENV
-          echo "$PWD/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$PWD/android-sdk/platform-tools" >> $GITHUB_PATH
-          echo "$PWD/android-sdk/emulator" >> $GITHUB_PATH
-          # تحقق من وجود sdkmanager
-          ls -la $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/
+          # now we have cmdline-tools/ directory, move to latest/
+          mkdir -p latest
+          mv cmdline-tools/* latest/ 2>/dev/null || true
+          rm -rf cmdline-tools
+          cd $HOME
+          # set environment variables
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_AVD_HOME=$HOME/android-sdk/avd" >> $GITHUB_ENV
+          echo "ANDROID_EMULATOR_HOME=$HOME/android-sdk/emulator" >> $GITHUB_ENV
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
+          # verify
+          ls -la $HOME/android-sdk/cmdline-tools/latest/bin/
 
-      - name: قبول التراخيص وإنشاء المحاكي
+      - name: قبول التراخيص وتثبيت الصور وإنشاء AVD
         run: |
-          export ANDROID_SDK_ROOT=${{ env.ANDROID_SDK_ROOT }}
+          export ANDROID_SDK_ROOT=$HOME/android-sdk
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-30" "system-images;android-30;google_apis;x86_64"
           sdkmanager "emulator"
-          echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4"
+          # إنشاء AVD مع تحديد المسار الكامل للصورة
+          echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4" -p $HOME/android-sdk/avd
 
-      - name: تشغيل المحاكي في الخلفية
+      - name: تشغيل المحاكي مع المتغيرات الصحيحة
         run: |
-          export ANDROID_SDK_ROOT=${{ env.ANDROID_SDK_ROOT }}
+          export ANDROID_SDK_ROOT=$HOME/android-sdk
+          export ANDROID_AVD_HOME=$HOME/android-sdk/avd
+          export ANDROID_EMULATOR_HOME=$HOME/android-sdk/emulator
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
-          emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 &
-          sleep 90  # زيادة وقت الإقلاع
+          # تحقق من وجود ملف AVD
+          ls -la $ANDROID_AVD_HOME
+          # تشغيل المحاكي مع -avd و -verbose لمشاهدة الأخطاء
+          emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 -verbose &
+          sleep 100  # وقت كافٍ للإقلاع
 
-      - name: بدء خادم VNC و noVNC
+      - name: بدء VNC و noVNC
         run: |
           Xvfb :99 -screen 0 1280x720x24 &
           sleep 2
@@ -67,27 +73,27 @@ jobs:
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تشغيل ngrok (باستخدام التوكن المقدم)
+      - name: تشغيل Serveo (بدون حساب، بدون توكن)
         run: |
-          wget -q https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
-          unzip -q ngrok-stable-linux-amd64.zip
-          chmod +x ngrok
-          ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
-          ./ngrok http 6080 &
+          # نستخدم ssh لإنشاء نفق على المنفذ 6080
+          ssh -o StrictHostKeyChecking=no -R 80:localhost:6080 serveo.net -N &
           sleep 10
-          curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
+          # نجلب الرابط من مخرجات serveo عبر curl (محاولة)
+          echo "🔗 الرابط سيظهر في السجلات أعلاه (ابحث عن https://xxxx.serveo.net)"
+          # نحاول استخراج الرابط من منفذ 4040 (إذا كان serveo يوفر واجهة API)
+          curl -s http://localhost:4040/api/tunnels 2>/dev/null | jq -r '.tunnels[0].public_url' > url.txt || echo "⚠️ انتظر ثم ابحث في السجلات عن الرابط"
 
-      - name: عرض تعليمات الاتصال
+      - name: عرض التعليمات
         run: |
           echo "═══════════════════════════════════════════════════════════════"
-          echo "🖥️  ANDROID REMOTE DESKTOP - يعمل الآن ✅"
+          echo "🖥️  ANDROID REMOTE DESKTOP - يعمل بدون ngrok ✅"
           echo "═══════════════════════════════════════════════════════════════"
           echo ""
-          echo "📌 رابط الاتصال (انسخه وافتحه في المتصفح):"
-          cat url.txt || echo "⚠️ لم يتم العثور على رابط، تأكد من تشغيل ngrok"
+          echo "📌 ابحث في السجلات (Logs) عن كلمة 'serveo.net'"
+          echo "   ستجد رابطاً مشابهاً لـ: https://xxxx.serveo.net"
           echo ""
           echo "🔑 كلمة مرور VNC: 123456"
-          echo "⚠️  انتظر دقيقة حتى يكتمل إقلاع المحاكي"
+          echo "⚠️  انتظر دقيقة إضافية حتى يكتمل إقلاع المحاكي"
           echo "═══════════════════════════════════════════════════════════════"
 
       - name: إبقاء الجلسة نشطة
