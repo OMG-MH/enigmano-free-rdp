@@ -1,4 +1,4 @@
-name: Android Emulator - Fast & No Ngrok
+name: Android Emulator - Ultimate Fixed
 on:
   workflow_dispatch:
 
@@ -18,8 +18,15 @@ jobs:
 
       - name: تثبيت نظام Android 25 وإنشاء المحاكي
         run: |
+          # تحديد مسار الـ AVD بشكل صارم ليقرأه النظام في الخطوات القادمة
+          mkdir -p $HOME/.android/avd
+          echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> $GITHUB_ENV
+          
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-25" "system-images;android-25;google_apis;x86" "emulator"
+          
+          # إنشاء المحاكي مباشرة داخل المسار الذي يفضله النظام
+          export ANDROID_AVD_HOME=$HOME/.android/avd
           echo "no" | avdmanager create avd -n test_android -k "system-images;android-25;google_apis;x86" --force
 
       - name: تشغيل الشاشة الافتراضية و VNC
@@ -32,9 +39,9 @@ jobs:
 
       - name: تشغيل المحاكي السريع وتثبيت المسارات
         run: |
-          # تعريف المسارات بدقة داخل الخطوة لتفادي خطأ command not found
           export ANDROID_HOME=$ANDROID_SDK_ROOT
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
+          export ANDROID_AVD_HOME=$HOME/.android/avd
           export DISPLAY=:99
           
           emulator -avd test_android \
@@ -52,7 +59,6 @@ jobs:
 
       - name: تشغيل نفق الاتصال البديل (Localtunnel)
         run: |
-          # تثبيت وتشغيل لوكال تونيل كبديل لـ ngrok بدون الحاجة لتوكن
           sudo npm install -g localtunnel
           lt --port 6080 > url.txt &
           sleep 8
@@ -62,7 +68,6 @@ jobs:
         run: |
           echo "════════════════════════════════════════════════"
           if [ -f url.txt ]; then
-            # استخراج الرابط النظيف وتجهيزه للمتصفح
             LT_URL=$(cat url.txt | grep -o 'https://[^ ]*')
             echo "📌 رابط شاشة الأندرويد الجديد:"
             echo "${LT_URL}/vnc_lite.html"
