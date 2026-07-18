@@ -1,4 +1,4 @@
-name: Android Emulator - Ubuntu 24.04 Compatibility Fix
+name: Android Emulator - High Performance & Fixed Colors
 on:
   workflow_dispatch:
 
@@ -8,10 +8,9 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: تثبيت المتطلبات ومكتبات النظام الحديثة (مصلح لأوبونتو 24.04)
+      - name: تثبيت المتطلبات ومكتبات النظام الحديثة
         run: |
           sudo apt-get update
-          # تم استبدال الأسماء القديمة بالأسماء الرسمية الجديدة للنظام الحديث
           sudo apt-get install -y --no-install-recommends wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq nodejs npm
           sudo apt-get install -y --no-install-recommends libpulse0 libgl1 libxcomposite1 libxcursor1 libasound2t64 libnss3
 
@@ -29,28 +28,31 @@ jobs:
           export ANDROID_AVD_HOME=$HOME/.android/avd
           echo "no" | avdmanager create avd -n test_android -k "system-images;android-25;google_apis;x86" --force
 
-      - name: تشغيل الشاشة الافتراضية و VNC
+      - name: تشغيل الشاشة الافتراضية و VNC (تم تعديل الألوان لـ 24-bit)
         run: |
-          Xvfb :99 -screen 0 1024x768x16 &
+          # رفع الألوان إلى 24 وتعديل دقة الشاشة لتطابق المحاكي تماماً لإزالة الضباب والألوان المتداخلة
+          Xvfb :99 -screen 0 1024x768x24 &
           sleep 3
           export DISPLAY=:99
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تشغيل المحاكي السريع وتثبيت المسارات
+      - name: تشغيل المحاكي السريع (وضع الأداء العالي ومصلح الألوان)
         run: |
           export ANDROID_HOME=$ANDROID_SDK_ROOT
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
           export ANDROID_AVD_HOME=$HOME/.android/avd
           export DISPLAY=:99
           
+          # تغيير الـ gpu إلى software وتقليل كثافة البيكسل لسرعة استجابة مذهلة
           emulator -avd test_android \
             -no-audio \
             -no-boot-anim \
             -accel off \
-            -gpu swiftshader_indirect \
-            -memory 1536 \
-            -cores 2 \
+            -gpu software \
+            -skin 480x800 \
+            -memory 2048 \
+            -cores 4 \
             -no-snapshot-load &
             
           echo "⏳ انتظر دقيقتين لبدء تشغيل النظام والتحقق..."
