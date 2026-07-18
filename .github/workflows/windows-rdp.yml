@@ -1,4 +1,4 @@
-name: Android Emulator - Fast & Fixed Final
+name: Android Emulator - Fast & Fully Fixed
 on:
   workflow_dispatch:
 
@@ -13,11 +13,12 @@ jobs:
           sudo apt update
           sudo apt install -y wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq
 
-      - name: تحميل وتثبيت Android SDK Tools
+      - name: تحميل وتثبيت Android SDK Tools (باستخدام wget المستقر)
         run: |
           mkdir -p $HOME/android-sdk/cmdline-tools
           cd $HOME/android-sdk/cmdline-tools
-          curl -fLo commandlinetools.zip https://google.com
+          # استخدام wget مع خاصية إعادة المحاولة وإجبار التنزيل الكامل لحل مشكلة الـ zip المعطوب
+          wget --tries=4 --retry-connrefused --waitretry=2 -O commandlinetools.zip https://google.com
           unzip -q commandlinetools.zip
           mkdir -p latest
           mv cmdline-tools/* latest/ 2>/dev/null || true
@@ -29,13 +30,12 @@ jobs:
           echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
           echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
 
-      - name: تثبيت نظام Android 25 وإنشاء المحاكي (تم إصلاح خطأ الجهاز)
+      - name: تثبيت نظام Android 25 وإنشاء المحاكي
         run: |
           export ANDROID_SDK_ROOT=$HOME/android-sdk
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-25" "system-images;android-25;google_apis;x86" "emulator"
-          # تم حذف بارامتر -d لتجنب خطأ عدم التعرف على نوع الجهاز
           echo "no" | avdmanager create avd -n test_android -k "system-images;android-25;google_apis;x86" --force
 
       - name: تشغيل الشاشة الافتراضية و VNC
@@ -73,7 +73,7 @@ jobs:
           ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
           ./ngrok http 6080 > /dev/null &
           sleep 8
-          curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
+          curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels.public_url' > url.txt
 
       - name: روابط الاتصال والشاشة
         run: |
