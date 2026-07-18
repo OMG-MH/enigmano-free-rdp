@@ -20,48 +20,43 @@ jobs:
           sudo apt update
           sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk ssh jq
 
-      - name: تثبيت Android SDK - هيكل cmdline-tools/latest
+      - name: تثبيت Android SDK - الهيكل الصحيح
         run: |
           mkdir -p $HOME/android-sdk/cmdline-tools
           cd $HOME/android-sdk/cmdline-tools
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
           unzip -q commandlinetools-linux-9477386_latest.zip
-          # now we have cmdline-tools/ directory, move to latest/
           mkdir -p latest
           mv cmdline-tools/* latest/ 2>/dev/null || true
           rm -rf cmdline-tools
           cd $HOME
-          # set environment variables
+          # تعيين المتغيرات الأساسية فقط (بدون AVD_HOME لنستخدم المسار الافتراضي)
           echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_AVD_HOME=$HOME/android-sdk/avd" >> $GITHUB_ENV
-          echo "ANDROID_EMULATOR_HOME=$HOME/android-sdk/emulator" >> $GITHUB_ENV
           echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
           echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
-          # verify
+          # تحقق
           ls -la $HOME/android-sdk/cmdline-tools/latest/bin/
 
-      - name: قبول التراخيص وتثبيت الصور وإنشاء AVD
+      - name: قبول التراخيص وتثبيت الصور وإنشاء AVD (بالمسار الافتراضي)
         run: |
           export ANDROID_SDK_ROOT=$HOME/android-sdk
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-30" "system-images;android-30;google_apis;x86_64"
           sdkmanager "emulator"
-          # إنشاء AVD مع تحديد المسار الكامل للصورة
-          echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4" -p $HOME/android-sdk/avd
+          # إنشاء AVD بدون تحديد مسار (سيُخزن في ~/.android/avd)
+          echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4"
 
-      - name: تشغيل المحاكي مع المتغيرات الصحيحة
+      - name: تشغيل المحاكي
         run: |
           export ANDROID_SDK_ROOT=$HOME/android-sdk
-          export ANDROID_AVD_HOME=$HOME/android-sdk/avd
-          export ANDROID_EMULATOR_HOME=$HOME/android-sdk/emulator
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
-          # تحقق من وجود ملف AVD
-          ls -la $ANDROID_AVD_HOME
-          # تشغيل المحاكي مع -avd و -verbose لمشاهدة الأخطاء
+          # تأكد من وجود AVD في المسار الافتراضي
+          echo "AVD موجودة في:"
+          ls -la ~/.android/avd/
           emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 -verbose &
-          sleep 100  # وقت كافٍ للإقلاع
+          sleep 120  # وقت كافٍ للإقلاع
 
       - name: بدء VNC و noVNC
         run: |
@@ -73,15 +68,21 @@ jobs:
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تشغيل Serveo (بدون حساب، بدون توكن)
+      - name: تشغيل Serveo والحصول على الرابط
         run: |
-          # نستخدم ssh لإنشاء نفق على المنفذ 6080
-          ssh -o StrictHostKeyChecking=no -R 80:localhost:6080 serveo.net -N &
+          # تشغيل ssh في الخلفية مع حفظ المخرجات في ملف مؤقت
+          ssh -o StrictHostKeyChecking=no -R 80:localhost:6080 serveo.net -N > serveo.log 2>&1 &
           sleep 10
-          # نجلب الرابط من مخرجات serveo عبر curl (محاولة)
-          echo "🔗 الرابط سيظهر في السجلات أعلاه (ابحث عن https://xxxx.serveo.net)"
-          # نحاول استخراج الرابط من منفذ 4040 (إذا كان serveo يوفر واجهة API)
-          curl -s http://localhost:4040/api/tunnels 2>/dev/null | jq -r '.tunnels[0].public_url' > url.txt || echo "⚠️ انتظر ثم ابحث في السجلات عن الرابط"
+          # استخراج الرابط من الملف
+          URL=$(grep -o 'https://[^ ]*\.serveo\.net' serveo.log | head -1)
+          if [ -n "$URL" ]; then
+            echo "$URL" > url.txt
+            echo "✅ تم الحصول على الرابط: $URL"
+          else
+            echo "⚠️ لم يتم العثور على الرابط بعد، حاول مرة أخرى يدوياً من السجلات"
+            # عرض آخر سطور الملف للمساعدة
+            tail -20 serveo.log
+          fi
 
       - name: عرض التعليمات
         run: |
@@ -89,8 +90,13 @@ jobs:
           echo "🖥️  ANDROID REMOTE DESKTOP - يعمل بدون ngrok ✅"
           echo "═══════════════════════════════════════════════════════════════"
           echo ""
-          echo "📌 ابحث في السجلات (Logs) عن كلمة 'serveo.net'"
-          echo "   ستجد رابطاً مشابهاً لـ: https://xxxx.serveo.net"
+          if [ -f url.txt ]; then
+            echo "📌 رابط الاتصال (انسخه وافتحه في المتصفح):"
+            cat url.txt
+          else
+            echo "📌 ابحث في السجلات (Logs) عن كلمة 'serveo.net'"
+            echo "   ستجد رابطاً مشابهاً لـ: https://xxxx.serveo.net"
+          fi
           echo ""
           echo "🔑 كلمة مرور VNC: 123456"
           echo "⚠️  انتظر دقيقة إضافية حتى يكتمل إقلاع المحاكي"
