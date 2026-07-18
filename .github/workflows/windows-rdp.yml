@@ -1,4 +1,4 @@
-name: Android Remote Desktop - شاشة أندرويد كاملة
+name: Android Emulator - شاشة أندرويد خالصة
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
       - name: تثبيت المتطلبات
         run: |
           sudo apt update
-          sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk ssh jq
+          sudo apt install -y wget curl unzip x11vnc xvfb novnc websockify openjdk-11-jdk ssh jq
 
       - name: تثبيت Android SDK
         run: |
@@ -52,28 +52,24 @@ jobs:
           sudo ln -sfn $HOME/android-sdk/emulator /usr/local/lib/android/sdk/emulator
           echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
 
-      - name: تشغيل Xvfb و VNC
+      - name: تشغيل Xvfb و VNC فقط (بدون Fluxbox)
         run: |
-          # بدء الشاشة الافتراضية
+          # شاشة افتراضية
           Xvfb :99 -screen 0 1280x720x24 &
           sleep 3
           export DISPLAY=:99
-          # بدء مدير النوافذ (يمكن الاستغناء عنه لكن نضعه ليكون خلفية)
-          fluxbox &
-          sleep 2
-          # بدء خادم VNC
+          # VNC مباشرة بدون مدير نوافذ
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
-          # بدء noVNC
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تشغيل المحاكي على نفس الشاشة (DISPLAY=:99)
+      - name: تشغيل المحاكي على الشاشة (:99)
         run: |
           export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
           export DISPLAY=:99
-          # تشغيل المحاكي بدون -no-window ليظهر على الشاشة
-          emulator -avd my_android -no-audio -gpu swiftshader_indirect -memory 2048 -sysdir $ANDROID_SDK_ROOT/system-images/android-30/google_apis/x86_64/ &
-          sleep 120  # وقت كافٍ للإقلاع
+          # تشغيل المحاكي بدون -no-window، مع -gpu swiftshader_indirect
+          emulator -avd my_android -no-audio -gpu swiftshader_indirect -memory 2048 -sysdir $ANDROID_SDK_ROOT/system-images/android-30/google_apis/x86_64/ -no-snapshot &
+          sleep 150  # وقت طويل للإقلاع لأن بدون تسريع
 
       - name: تشغيل ngrok مع التوكن
         run: |
@@ -85,27 +81,24 @@ jobs:
           sleep 10
           curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
 
-      - name: عرض التعليمات
+      - name: عرض التعليمات (شاشة أندرويد)
         run: |
           echo "═══════════════════════════════════════════════════════════════"
-          echo "🖥️  ANDROID EMULATOR - شاشة أندرويد كاملة ✅"
+          echo "📱  ANDROID EMULATOR - شاشة أندرويد خالصة ✅"
           echo "═══════════════════════════════════════════════════════════════"
           echo ""
           if [ -f url.txt ] && [ -s url.txt ]; then
             URL=$(cat url.txt)
-            echo "📌 رابط الاتصال (انسخه وافتحه في المتصفح):"
+            echo "📌 رابط الاتصال:"
             echo "${URL}/vnc_lite.html"
-          else
-            echo "⚠️ لم يتم العثور على الرابط"
           fi
           echo ""
-          echo "🔑 كلمة مرور VNC: 123456"
-          echo "⚠️  انتظر دقيقة إضافية حتى تظهر شاشة أندرويد"
+          echo "🔑 كلمة المرور: 123456"
+          echo "⏳ انتظر 2-3 دقائق حتى يظهر شعار أندرويد ثم الشاشة الرئيسية"
           echo "═══════════════════════════════════════════════════════════════"
 
-      - name: إبقاء الجلسة نشطة
+      - name: إبقاء الجلسة
         run: |
-          echo "⏳ الجلسة نشطة لمدة 6 ساعات"
           while true; do
             echo "✓ Heartbeat $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             sleep 60
