@@ -1,4 +1,4 @@
-name: Android Remote Desktop - نهائي (ngrok + localhost.run)
+name: Android Remote Desktop - نهائي (ngrok v3 + token)
 
 on:
   workflow_dispatch:
@@ -46,27 +46,19 @@ jobs:
 
       - name: إصلاح مسار صور النظام (رابط رمزي)
         run: |
-          # المحاكي يبحث في /usr/local/lib/android/sdk/system-images/...
-          # ننشئ رابطاً رمزياً من هناك إلى مجلدنا
           sudo mkdir -p /usr/local/lib/android/sdk
           sudo ln -sfn $HOME/android-sdk/system-images /usr/local/lib/android/sdk/system-images
-          # أيضاً نربط platform-tools و emulator إن لزم
           sudo ln -sfn $HOME/android-sdk/platform-tools /usr/local/lib/android/sdk/platform-tools
           sudo ln -sfn $HOME/android-sdk/emulator /usr/local/lib/android/sdk/emulator
-          # ونسخ AVD إلى المسار المتوقع (اختياري)
-          cp -r ~/.android/avd ~/.android/avd_backup
-          # نضبط ANDROID_SDK_ROOT للمحاكي ليكون المسار الجديد
           echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
 
-      - name: تشغيل المحاكي (مع المسار المُصحَّح)
+      - name: تشغيل المحاكي مع المسار المُصحَّح
         run: |
           export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
-          # التأكد من وجود AVD
-          ls -la ~/.android/avd/
           # تشغيل المحاكي مع تحديد sysdir صراحةً
-          emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 -sysdir $ANDROID_SDK_ROOT/system-images/android-30/google_apis/x86_64/ &
-          sleep 120
+          emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 -sysdir $ANDROID_SDK_ROOT/system-images/android-30/google_apis/x86_64/ -verbose &
+          sleep 120  # وقت كافٍ للإقلاع
 
       - name: بدء VNC و noVNC
         run: |
@@ -78,31 +70,18 @@ jobs:
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تشغيل ngrok (إصدار حديث بدون توكن)
+      - name: تشغيل ngrok v3 مع التوكن
         run: |
-          # تحميل ngrok الإصدار 3.x (الأحدث)
+          # تحميل ngrok الإصدار 3.x
           wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
           tar -xzf ngrok-v3-stable-linux-amd64.tgz
           chmod +x ngrok
-          # تشغيل بدون authtoken (يعمل مجاناً لفترة محدودة)
+          # إضافة التوكن (استخدم التوكن الذي زودتني به)
+          ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
+          # تشغيل النفق على المنفذ 6080
           ./ngrok http 6080 &
           sleep 10
           curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
-
-      - name: (بديل) تشغيل localhost.run في حال فشل ngrok
-        if: always()
-        run: |
-          if [ ! -s url.txt ]; then
-            echo "⚠️ ngrok لم يعمل، نجرب localhost.run"
-            ssh -o StrictHostKeyChecking=no -R 80:localhost:6080 localhost.run -N > localhost.log 2>&1 &
-            sleep 10
-            URL=$(grep -o 'https://[^ ]*\.localhost\.run' localhost.log | head -1)
-            if [ -n "$URL" ]; then
-              echo "$URL" > url.txt
-            else
-              echo "⚠️ فشل أيضاً، تحقق من السجلات يدوياً"
-            fi
-          fi
 
       - name: عرض التعليمات
         run: |
@@ -110,12 +89,11 @@ jobs:
           echo "🖥️  ANDROID REMOTE DESKTOP - يعمل الآن ✅"
           echo "═══════════════════════════════════════════════════════════════"
           echo ""
-          if [ -f url.txt ]; then
+          if [ -f url.txt ] && [ -s url.txt ]; then
             echo "📌 رابط الاتصال (انسخه وافتحه في المتصفح):"
             cat url.txt
           else
-            echo "📌 لم يتم العثور على رابط تلقائياً، ابحث في السجلات عن"
-            echo "   'ngrok' أو 'localhost.run'"
+            echo "⚠️ لم يتم العثور على الرابط، تحقق من سجلات ngrok"
           fi
           echo ""
           echo "🔑 كلمة مرور VNC: 123456"
