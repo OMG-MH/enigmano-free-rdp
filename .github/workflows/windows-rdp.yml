@@ -1,4 +1,4 @@
-name: Android Remote Desktop - نهائي (ngrok v3 + token)
+name: Android Remote Desktop - شاشة أندرويد كاملة
 
 on:
   workflow_dispatch:
@@ -15,12 +15,12 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: تثبيت المتطلبات الأساسية
+      - name: تثبيت المتطلبات
         run: |
           sudo apt update
           sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk ssh jq
 
-      - name: تثبيت Android SDK (الهيكل الصحيح)
+      - name: تثبيت Android SDK
         run: |
           mkdir -p $HOME/android-sdk/cmdline-tools
           cd $HOME/android-sdk/cmdline-tools
@@ -35,7 +35,7 @@ jobs:
           echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
           echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
 
-      - name: قبول التراخيص وتثبيت الصور وإنشاء AVD
+      - name: قبول التراخيص وإنشاء AVD
         run: |
           export ANDROID_SDK_ROOT=$HOME/android-sdk
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
@@ -44,7 +44,7 @@ jobs:
           sdkmanager "emulator"
           echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4"
 
-      - name: إصلاح مسار صور النظام (رابط رمزي)
+      - name: إصلاح مسار الصور (رابط رمزي)
         run: |
           sudo mkdir -p /usr/local/lib/android/sdk
           sudo ln -sfn $HOME/android-sdk/system-images /usr/local/lib/android/sdk/system-images
@@ -52,33 +52,35 @@ jobs:
           sudo ln -sfn $HOME/android-sdk/emulator /usr/local/lib/android/sdk/emulator
           echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
 
-      - name: تشغيل المحاكي مع المسار المُصحَّح
+      - name: تشغيل Xvfb و VNC
+        run: |
+          # بدء الشاشة الافتراضية
+          Xvfb :99 -screen 0 1280x720x24 &
+          sleep 3
+          export DISPLAY=:99
+          # بدء مدير النوافذ (يمكن الاستغناء عنه لكن نضعه ليكون خلفية)
+          fluxbox &
+          sleep 2
+          # بدء خادم VNC
+          x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
+          # بدء noVNC
+          websockify --web /usr/share/novnc 6080 localhost:5900 &
+
+      - name: تشغيل المحاكي على نفس الشاشة (DISPLAY=:99)
         run: |
           export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
-          # تشغيل المحاكي مع تحديد sysdir صراحةً
-          emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 -sysdir $ANDROID_SDK_ROOT/system-images/android-30/google_apis/x86_64/ -verbose &
+          export DISPLAY=:99
+          # تشغيل المحاكي بدون -no-window ليظهر على الشاشة
+          emulator -avd my_android -no-audio -gpu swiftshader_indirect -memory 2048 -sysdir $ANDROID_SDK_ROOT/system-images/android-30/google_apis/x86_64/ &
           sleep 120  # وقت كافٍ للإقلاع
 
-      - name: بدء VNC و noVNC
+      - name: تشغيل ngrok مع التوكن
         run: |
-          Xvfb :99 -screen 0 1280x720x24 &
-          sleep 2
-          export DISPLAY=:99
-          fluxbox &
-          sleep 2
-          x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
-          websockify --web /usr/share/novnc 6080 localhost:5900 &
-
-      - name: تشغيل ngrok v3 مع التوكن
-        run: |
-          # تحميل ngrok الإصدار 3.x
           wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
           tar -xzf ngrok-v3-stable-linux-amd64.tgz
           chmod +x ngrok
-          # إضافة التوكن (استخدم التوكن الذي زودتني به)
           ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
-          # تشغيل النفق على المنفذ 6080
           ./ngrok http 6080 &
           sleep 10
           curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
@@ -86,18 +88,19 @@ jobs:
       - name: عرض التعليمات
         run: |
           echo "═══════════════════════════════════════════════════════════════"
-          echo "🖥️  ANDROID REMOTE DESKTOP - يعمل الآن ✅"
+          echo "🖥️  ANDROID EMULATOR - شاشة أندرويد كاملة ✅"
           echo "═══════════════════════════════════════════════════════════════"
           echo ""
           if [ -f url.txt ] && [ -s url.txt ]; then
+            URL=$(cat url.txt)
             echo "📌 رابط الاتصال (انسخه وافتحه في المتصفح):"
-            cat url.txt
+            echo "${URL}/vnc_lite.html"
           else
-            echo "⚠️ لم يتم العثور على الرابط، تحقق من سجلات ngrok"
+            echo "⚠️ لم يتم العثور على الرابط"
           fi
           echo ""
           echo "🔑 كلمة مرور VNC: 123456"
-          echo "⚠️  انتظر دقيقة إضافية حتى يكتمل إقلاع المحاكي"
+          echo "⚠️  انتظر دقيقة إضافية حتى تظهر شاشة أندرويد"
           echo "═══════════════════════════════════════════════════════════════"
 
       - name: إبقاء الجلسة نشطة
