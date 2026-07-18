@@ -1,10 +1,10 @@
-name: Android Remote Desktop - Fixed (ngrok)
+name: Android Remote Desktop - Simplified
 
 on:
   workflow_dispatch:
     inputs:
       instance_name:
-        description: 'اسم الجهاز (اختياري)'
+        description: 'اسم الجهاز'
         required: false
         default: 'Android-Emulator'
         type: string
@@ -15,45 +15,46 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: تثبيت المتطلبات الأساسية
+      - name: تثبيت المتطلبات
         run: |
           sudo apt update
-          sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk ssh
+          sudo apt install -y wget curl unzip x11vnc xvfb fluxbox novnc websockify openjdk-11-jdk ssh jq
 
-      - name: تثبيت Android SDK (الطريقة الصحيحة)
+      - name: تثبيت Android SDK (بدون مجلد latest)
         run: |
-          mkdir -p android-sdk
-          cd android-sdk
-          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-          unzip commandlinetools-linux-9477386_latest.zip
-          mkdir -p cmdline-tools
-          mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
-          cd ..
+          mkdir -p android-sdk/cmdline-tools
+          cd android-sdk/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          unzip -q commandlinetools-linux-9477386_latest.zip
+          # الملفات ستكون في cmdline-tools/ مباشرة، ننقل محتوياتها إلى الأعلى
+          mv cmdline-tools/* . 2>/dev/null || true
+          rm -rf cmdline-tools
+          cd ../..
           export ANDROID_SDK_ROOT=$PWD/android-sdk
           echo "ANDROID_SDK_ROOT=$PWD/android-sdk" >> $GITHUB_ENV
-          echo "$PWD/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$PWD/android-sdk/cmdline-tools/bin" >> $GITHUB_PATH
           echo "$PWD/android-sdk/platform-tools" >> $GITHUB_PATH
           echo "$PWD/android-sdk/emulator" >> $GITHUB_PATH
           # تحقق
-          ls -la $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/
+          ls -la $ANDROID_SDK_ROOT/cmdline-tools/bin/
 
       - name: قبول التراخيص وإنشاء المحاكي
         run: |
           export ANDROID_SDK_ROOT=${{ env.ANDROID_SDK_ROOT }}
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
+          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/bin:$PATH
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-30" "system-images;android-30;google_apis;x86_64"
           sdkmanager "emulator"
           echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4"
 
-      - name: تشغيل المحاكي في الخلفية
+      - name: تشغيل المحاكي
         run: |
           export ANDROID_SDK_ROOT=${{ env.ANDROID_SDK_ROOT }}
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
           emulator -avd my_android -no-window -no-audio -gpu swiftshader_indirect -memory 2048 &
-          sleep 60  # انتظار إقلاع كافٍ
+          sleep 70
 
-      - name: بدء خادم VNC و noVNC
+      - name: تشغيل VNC و noVNC
         run: |
           Xvfb :99 -screen 0 1280x720x24 &
           sleep 2
@@ -63,30 +64,29 @@ jobs:
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تشغيل ngrok (باستخدام التوكن المقدم)
+      - name: تشغيل ngrok (باستخدام التوكن)
         run: |
-          wget https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
-          unzip ngrok-stable-linux-amd64.zip
+          wget -q https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
+          unzip -q ngrok-stable-linux-amd64.zip
           chmod +x ngrok
           ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
           ./ngrok http 6080 &
           sleep 8
           curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
 
-      - name: عرض تعليمات الاتصال
+      - name: عرض التعليمات
         run: |
           echo "═══════════════════════════════════════════════════════════════"
           echo "🖥️  ANDROID REMOTE DESKTOP - يعمل الآن ✅"
           echo "═══════════════════════════════════════════════════════════════"
           echo ""
-          echo "📌 رابط الاتصال (انسخه وافتحه في المتصفح):"
-          cat url.txt || echo "⚠️ لم يتم العثور على رابط، تأكد من تشغيل ngrok"
+          echo "📌 رابط الاتصال:"
+          cat url.txt || echo "⚠️ لم يتم العثور على رابط"
           echo ""
           echo "🔑 كلمة مرور VNC: 123456"
-          echo "⚠️  انتظر دقيقة حتى يكتمل إقلاع المحاكي"
           echo "═══════════════════════════════════════════════════════════════"
 
-      - name: إبقاء الجلسة نشطة
+      - name: إبقاء الجلسة
         run: |
           echo "⏳ الجلسة نشطة لمدة 6 ساعات"
           while true; do
