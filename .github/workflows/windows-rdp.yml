@@ -42,34 +42,35 @@ jobs:
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-30" "system-images;android-30;google_apis;x86_64"
           sdkmanager "emulator"
-          echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4"
-
-      - name: إصلاح مسار الصور (رابط رمزي)
-        run: |
-          sudo mkdir -p /usr/local/lib/android/sdk
-          sudo ln -sfn $HOME/android-sdk/system-images /usr/local/lib/android/sdk/system-images
-          sudo ln -sfn $HOME/android-sdk/platform-tools /usr/local/lib/android/sdk/platform-tools
-          sudo ln -sfn $HOME/android-sdk/emulator /usr/local/lib/android/sdk/emulator
-          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          # إنشاء الـ AVD في المسار الافتراضي الصحيح
+          echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4" --force
 
       - name: تشغيل Xvfb و VNC فقط (بدون Fluxbox)
         run: |
-          # شاشة افتراضية
           Xvfb :99 -screen 0 1280x720x24 &
           sleep 3
           export DISPLAY=:99
-          # VNC مباشرة بدون مدير نوافذ
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
       - name: تشغيل المحاكي على الشاشة (:99)
         run: |
-          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=$HOME/android-sdk
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
           export DISPLAY=:99
-          # تشغيل المحاكي بدون -no-window، مع -gpu swiftshader_indirect
-          emulator -avd my_android -no-audio -gpu swiftshader_indirect -memory 2048 -sysdir $ANDROID_SDK_ROOT/system-images/android-30/google_apis/x86_64/ -no-snapshot &
-          sleep 150  # وقت طويل للإقلاع لأن بدون تسريع
+          
+          # تعديل الأمر لإيقاف التسريع العتادي وتخفيف الضغط -accel off
+          emulator -avd my_android \
+            -no-audio \
+            -no-boot-anim \
+            -accel off \
+            -gpu swiftshader_indirect \
+            -memory 2048 \
+            -partition-size 2048 &
+            
+          # انتظر دقيقة ثم تحقق من أن العملية تعمل ولم تنهار
+          sleep 30
+          adb devices
 
       - name: تشغيل ngrok مع التوكن
         run: |
