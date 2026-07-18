@@ -1,4 +1,4 @@
-name: Android Emulator - Official SDK Setup
+name: Android Emulator - Fast & No Ngrok
 on:
   workflow_dispatch:
 
@@ -8,12 +8,11 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: تثبيت المتطلبات الأساسية
+      - name: تثبيت المتطلبات الأساسية والنظام
         run: |
           sudo apt update
-          sudo apt install -y wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq
+          sudo apt install -y wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq nodejs npm
 
-      # استخدام الأكشن الرسمي لتثبيت الـ SDK بدلاً من wget/curl
       - name: إعداد Android SDK تلقائياً
         uses: android-actions/setup-android@v3
 
@@ -31,8 +30,11 @@ jobs:
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تشغيل المحاكي السريع (بدون تسريع عتادي)
+      - name: تشغيل المحاكي السريع وتثبيت المسارات
         run: |
+          # تعريف المسارات بدقة داخل الخطوة لتفادي خطأ command not found
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
+          export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
           export DISPLAY=:99
           
           emulator -avd test_android \
@@ -48,23 +50,22 @@ jobs:
           sleep 120
           adb devices
 
-      - name: ربط وتشغيل ngrok
+      - name: تشغيل نفق الاتصال البديل (Localtunnel)
         run: |
-          wget -q https://equinox.io
-          tar -xzf ngrok-v3-stable-linux-amd64.tgz
-          chmod +x ngrok
-          ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
-          ./ngrok http 6080 > /dev/null &
+          # تثبيت وتشغيل لوكال تونيل كبديل لـ ngrok بدون الحاجة لتوكن
+          sudo npm install -g localtunnel
+          lt --port 6080 > url.txt &
           sleep 8
-          curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels.public_url' > url.txt
+          cat url.txt
 
       - name: روابط الاتصال والشاشة
         run: |
           echo "════════════════════════════════════════════════"
-          if [ -f url.txt ] && [ -s url.txt ]; then
-            URL=$(cat url.txt)
-            echo "📌 رابط شاشة الأندرويد:"
-            echo "${URL}/vnc_lite.html"
+          if [ -f url.txt ]; then
+            # استخراج الرابط النظيف وتجهيزه للمتصفح
+            LT_URL=$(cat url.txt | grep -o 'https://[^ ]*')
+            echo "📌 رابط شاشة الأندرويد الجديد:"
+            echo "${LT_URL}/vnc_lite.html"
           fi
           echo "🔑 كلمة المرور: 123456"
           echo "════════════════════════════════════════════════"
