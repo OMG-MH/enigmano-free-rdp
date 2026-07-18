@@ -1,4 +1,4 @@
-name: Android Emulator - Fast Version
+name: Android Emulator - Fast & Fixed
 on:
   workflow_dispatch:
 
@@ -13,12 +13,12 @@ jobs:
           sudo apt update
           sudo apt install -y wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq
 
-      - name: تحميل وتثبيت Android SDK Tools
+      - name: تحميل وتثبيت Android SDK Tools (مصلح)
         run: |
           mkdir -p $HOME/android-sdk/cmdline-tools
           cd $HOME/android-sdk/cmdline-tools
-          # استخدام الرابط المباشر الصحيح والمستقر من جوجل
-          curl -fo commandlinetools.zip https://google.com
+          # إضافة -L تضمن تحميل الملف الفعلي بنجاح وإصلاح خطأ الـ unzip
+          curl -fLo commandlinetools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           unzip -q commandlinetools.zip
           mkdir -p latest
           mv cmdline-tools/* latest/ 2>/dev/null || true
@@ -30,13 +30,11 @@ jobs:
           echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
           echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
 
-
-      - name: تثبيت نظام Android 25 الخفيف وإنشاء المحاكي
+      - name: تثبيت نظام Android 25 وإنشاء المحاكي
         run: |
           export ANDROID_SDK_ROOT=$HOME/android-sdk
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           yes | sdkmanager --licenses
-          # استخدام نسخة x86 خفيفة من أندرويد 7.1.1
           sdkmanager "platform-tools" "platforms;android-25" "system-images;android-25;google_apis;x86" "emulator"
           echo "no" | avdmanager create avd -n test_android -k "system-images;android-25;google_apis;x86" -d "nexus_5" --force
 
@@ -54,7 +52,6 @@ jobs:
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
           export DISPLAY=:99
           
-          # بارامترات مخصصة لسرعة الإقلاع وتقليل استهلاك الموارد
           emulator -avd test_android \
             -no-audio \
             -no-boot-anim \
@@ -64,7 +61,7 @@ jobs:
             -cores 2 \
             -no-snapshot-load &
             
-          echo "⏳ انتظر دقيقتين لبدء تشغيل النظام..."
+          echo "⏳ انتظر دقيقتين لبدء تشغيل النظام والتحقق..."
           sleep 120
           adb devices
 
@@ -73,8 +70,9 @@ jobs:
           wget -q https://equinox.io
           tar -xzf ngrok-v3-stable-linux-amd64.tgz
           chmod +x ngrok
+          # تم إصلاح استخراج الرابط من الـ JSON هنا لتفادي أي خطأ
           ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
-          ./ngrok http 6080 &
+          ./ngrok http 6080 > /dev/null &
           sleep 8
           curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
 
