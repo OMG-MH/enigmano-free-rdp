@@ -1,4 +1,4 @@
-name: Android Emulator - Fast & Fully Fixed
+name: Android Emulator - Official SDK Setup
 on:
   workflow_dispatch:
 
@@ -13,27 +13,12 @@ jobs:
           sudo apt update
           sudo apt install -y wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq
 
-      - name: تحميل وتثبيت Android SDK Tools (باستخدام wget المستقر)
-        run: |
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          cd $HOME/android-sdk/cmdline-tools
-          # استخدام wget مع خاصية إعادة المحاولة وإجبار التنزيل الكامل لحل مشكلة الـ zip المعطوب
-          wget --tries=4 --retry-connrefused --waitretry=2 -O commandlinetools.zip https://google.com
-          unzip -q commandlinetools.zip
-          mkdir -p latest
-          mv cmdline-tools/* latest/ 2>/dev/null || true
-          rm -rf cmdline-tools commandlinetools.zip
-          cd $HOME
-          
-          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
-          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
-          echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
+      # استخدام الأكشن الرسمي لتثبيت الـ SDK بدلاً من wget/curl
+      - name: إعداد Android SDK تلقائياً
+        uses: android-actions/setup-android@v3
 
       - name: تثبيت نظام Android 25 وإنشاء المحاكي
         run: |
-          export ANDROID_SDK_ROOT=$HOME/android-sdk
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-25" "system-images;android-25;google_apis;x86" "emulator"
           echo "no" | avdmanager create avd -n test_android -k "system-images;android-25;google_apis;x86" --force
@@ -48,8 +33,6 @@ jobs:
 
       - name: تشغيل المحاكي السريع (بدون تسريع عتادي)
         run: |
-          export ANDROID_SDK_ROOT=$HOME/android-sdk
-          export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
           export DISPLAY=:99
           
           emulator -avd test_android \
