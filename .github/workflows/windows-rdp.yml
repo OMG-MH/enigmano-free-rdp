@@ -1,4 +1,4 @@
-name: Android Emulator - Final Dependencies Fix
+name: Android Emulator - Ubuntu 24.04 Compatibility Fix
 on:
   workflow_dispatch:
 
@@ -8,11 +8,12 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: تثبيت المتطلبات الأساسية ومكتبات النظام المفقودة (حل تعارض حزم السيرفر)
+      - name: تثبيت المتطلبات ومكتبات النظام الحديثة (مصلح لأوبونتو 24.04)
         run: |
-          # تم تفادي تعارض الحزم عبر تثبيت المكونات الضرورية فقط للمحاكي مباشرة
+          sudo apt-get update
+          # تم استبدال الأسماء القديمة بالأسماء الرسمية الجديدة للنظام الحديث
           sudo apt-get install -y --no-install-recommends wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq nodejs npm
-          sudo apt-get install -y --no-install-recommends libpulse0 libgl1-mesa-glx libxcomposite1 libxcursor1 libasound2 libnss3
+          sudo apt-get install -y --no-install-recommends libpulse0 libgl1 libxcomposite1 libxcursor1 libasound2t64 libnss3
 
       - name: إعداد Android SDK تلقائياً
         uses: android-actions/setup-android@v3
