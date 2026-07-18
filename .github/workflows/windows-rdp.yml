@@ -1,13 +1,6 @@
-name: Android Emulator - شاشة أندرويد خالصة
-
+name: Android Emulator - Fast Version
 on:
   workflow_dispatch:
-    inputs:
-      instance_name:
-        description: 'اسم الجهاز'
-        required: false
-        default: 'Android-Emulator'
-        type: string
 
 jobs:
   android:
@@ -15,92 +8,86 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: تثبيت المتطلبات
+      - name: تثبيت المتطلبات الأساسية
         run: |
           sudo apt update
-          sudo apt install -y wget curl unzip x11vnc xvfb novnc websockify openjdk-11-jdk ssh jq
+          sudo apt install -y wget curl unzip x11vnc xvfb novnc websockify openjdk-17-jdk jq
 
-      - name: تثبيت Android SDK
+      - name: تحميل وتثبيت Android SDK Tools
         run: |
           mkdir -p $HOME/android-sdk/cmdline-tools
           cd $HOME/android-sdk/cmdline-tools
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          wget -q https://google.com
           unzip -q commandlinetools-linux-9477386_latest.zip
           mkdir -p latest
           mv cmdline-tools/* latest/ 2>/dev/null || true
           rm -rf cmdline-tools
-          cd $HOME
+          
           echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
           echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
           echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
 
-      - name: قبول التراخيص وإنشاء AVD
+      - name: تثبيت نظام Android 25 الخفيف وإنشاء المحاكي
         run: |
           export ANDROID_SDK_ROOT=$HOME/android-sdk
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-30" "system-images;android-30;google_apis;x86_64"
-          sdkmanager "emulator"
-          # إنشاء الـ AVD في المسار الافتراضي الصحيح
-          echo "no" | avdmanager create avd -n my_android -k "system-images;android-30;google_apis;x86_64" -d "pixel_4" --force
+          # استخدام نسخة x86 خفيفة من أندرويد 7.1.1
+          sdkmanager "platform-tools" "platforms;android-25" "system-images;android-25;google_apis;x86" "emulator"
+          echo "no" | avdmanager create avd -n test_android -k "system-images;android-25;google_apis;x86" -d "nexus_5" --force
 
-      - name: تشغيل Xvfb و VNC فقط (بدون Fluxbox)
+      - name: تشغيل الشاشة الافتراضية و VNC
         run: |
-          Xvfb :99 -screen 0 1280x720x24 &
+          Xvfb :99 -screen 0 1024x768x16 &
           sleep 3
           export DISPLAY=:99
           x11vnc -display :99 -forever -shared -passwd 123456 -rfbport 5900 &
           websockify --web /usr/share/novnc 6080 localhost:5900 &
 
-      - name: تشغيل المحاكي على الشاشة (:99)
+      - name: تشغيل المحاكي السريع (بدون تسريع عتادي)
         run: |
           export ANDROID_SDK_ROOT=$HOME/android-sdk
           export PATH=$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/platform-tools:$PATH
           export DISPLAY=:99
           
-          # تعديل الأمر لإيقاف التسريع العتادي وتخفيف الضغط -accel off
-          emulator -avd my_android \
+          # بارامترات مخصصة لسرعة الإقلاع وتقليل استهلاك الموارد
+          emulator -avd test_android \
             -no-audio \
             -no-boot-anim \
             -accel off \
             -gpu swiftshader_indirect \
-            -memory 2048 \
-            -partition-size 2048 &
+            -memory 1536 \
+            -cores 2 \
+            -no-snapshot-load &
             
-          # انتظر دقيقة ثم تحقق من أن العملية تعمل ولم تنهار
-          sleep 30
+          echo "⏳ انتظر دقيقتين لبدء تشغيل النظام..."
+          sleep 120
           adb devices
 
-      - name: تشغيل ngrok مع التوكن
+      - name: ربط وتشغيل ngrok
         run: |
-          wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+          wget -q https://equinox.io
           tar -xzf ngrok-v3-stable-linux-amd64.tgz
           chmod +x ngrok
           ./ngrok authtoken 3G6Tklvvie4TlnfT4Pbm0MZIyZX_5UDFUwhjvvaHEXthqrEEA
           ./ngrok http 6080 &
-          sleep 10
+          sleep 8
           curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' > url.txt
 
-      - name: عرض التعليمات (شاشة أندرويد)
+      - name: روابط الاتصال والشاشة
         run: |
-          echo "═══════════════════════════════════════════════════════════════"
-          echo "📱  ANDROID EMULATOR - شاشة أندرويد خالصة ✅"
-          echo "═══════════════════════════════════════════════════════════════"
-          echo ""
+          echo "════════════════════════════════════════════════"
           if [ -f url.txt ] && [ -s url.txt ]; then
             URL=$(cat url.txt)
-            echo "📌 رابط الاتصال:"
+            echo "📌 رابط شاشة الأندرويد:"
             echo "${URL}/vnc_lite.html"
           fi
-          echo ""
           echo "🔑 كلمة المرور: 123456"
-          echo "⏳ انتظر 2-3 دقائق حتى يظهر شعار أندرويد ثم الشاشة الرئيسية"
-          echo "═══════════════════════════════════════════════════════════════"
+          echo "════════════════════════════════════════════════"
 
-      - name: إبقاء الجلسة
+      - name: الحفاظ على استمرار الجلسة
         run: |
           while true; do
-            echo "✓ Heartbeat $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             sleep 60
           done
