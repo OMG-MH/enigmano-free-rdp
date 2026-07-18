@@ -17,16 +17,19 @@ jobs:
         run: |
           mkdir -p $HOME/android-sdk/cmdline-tools
           cd $HOME/android-sdk/cmdline-tools
-          wget -q https://google.com
-          unzip -q commandlinetools-linux-9477386_latest.zip
+          # استخدام الرابط المباشر الصحيح والمستقر من جوجل
+          curl -fo commandlinetools.zip https://google.com
+          unzip -q commandlinetools.zip
           mkdir -p latest
           mv cmdline-tools/* latest/ 2>/dev/null || true
-          rm -rf cmdline-tools
+          rm -rf cmdline-tools commandlinetools.zip
+          cd $HOME
           
           echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
           echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
           echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
+
 
       - name: تثبيت نظام Android 25 الخفيف وإنشاء المحاكي
         run: |
