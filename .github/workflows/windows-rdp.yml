@@ -1,4 +1,4 @@
-name: Android Server - High Speed Docker Version
+name: Android Server - Super Fast & Fixed Docker
 on:
   workflow_dispatch:
 
@@ -8,26 +8,41 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: تثبيت المتطلبات ونظام البث
+      - name: تثبيت المتطلبات الأساسية
         run: |
           sudo apt update
-          sudo apt install -y nodejs npm jq curl
-          # تثبيت نظام تعجيل ومكتبات التحميل لنظام Docker المخصص للأندرويد
-          sudo modprobe ashmem_linux || true
-          sudo modprobe binder_linux || true
+          sudo apt install -y nodejs npm jq curl adb
 
-      - name: تشغيل نظام أندرويد الخفيف (Redroid)
+      - name: تشغيل حاوية أندرويد المتوافقة (Redroid)
         run: |
-          # تشغيل أندرويد معالج برمجياً خفيف ومباشر بدون QEMU الثقيل
-          docker run -d -p 5555:5555 --name redroid redroid/redroid:11.0.0-latest \
+          # تشغيل أندرويد ببارامترات متوافقة مع سيرفر جيت هاب الحالي بدون تعليق
+          docker run -d --privileged \
+            -p 5555:5555 \
+            --name redroid \
+            redroid/redroid:11.0.0-latest \
             androidboot.redroid_width=720 \
             androidboot.redroid_height=1280 \
-            androidboot.redroid_dpi=320
+            androidboot.redroid_dpi=320 \
+            redroid.gpu.mode=guest
+          
+          # الانتظار حتى يعمل خادم أندرويد الداخلي ثم ربطه بـ ADB
+          sleep 10
+          adb connect localhost:5555
+          adb devices
 
-      - name: إعداد بث الشاشة السريع (scrcpy-web)
+      - name: تشغيل خادم البث السريع (ws-scrcpy)
         run: |
-          # تشغيل خادم ويب لبث شاشة الأندرويد كفيديو سريع بدلاً من الـ VNC البطيء
-          docker run -d --rm --name scrcpy-web --link redroid:redroid -p 6080:8000 srevinsaju/scrcpy-web:latest
+          # تشغيل البديل الرسمي المستقر فائق السرعة لبث الشاشة كفيديو متحرك وسلس
+          docker run -d --name ws-scrcpy \
+            --privileged \
+            --net=host \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            genymobile/scrcpy:v2.4 scrcpy --v4l2-sink=/dev/video0 --no-audio --max-size=800 & || true
+          
+          # إعداد نظام بث ويب خفيف يعتمد على الـ Node
+          sudo npm install -g @devicefarmer/stf-scrcpy-cli || true
+          # تشغيل واجهة ويب بسيطة على المنفذ 6080 لتصفح سلس
+          npx ws-scrcpy -p 6080 &
           sleep 10
 
       - name: تشغيل نفق الاتصال السريع (Localtunnel)
@@ -35,15 +50,17 @@ jobs:
           sudo npm install -g localtunnel
           lt --port 6080 > url.txt &
           sleep 8
+          cat url.txt
 
-      - name: روابط الاتصال السريع
+      - name: روابط الاتصال السريع والتحكم
         run: |
           echo "════════════════════════════════════════════════"
           if [ -f url.txt ]; then
             LT_URL=$(cat url.txt | grep -o 'https://[^ ]*')
-            echo "📌 رابط أندرويد السريع (افتحه في المتصفح):"
+            echo "📌 رابط أندرويد السريع جداً:"
             echo "${LT_URL}"
           fi
+          echo "💡 عند فتح الرابط، ستظهر لك أجهزة أندرويد المتاحة، اضغط على الجهاز للتحكم الفوري السلس"
           echo "════════════════════════════════════════════════"
 
       - name: استمرار الجلسة
